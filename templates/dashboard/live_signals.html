@@ -123,7 +123,6 @@
             let searchQuery = '';
             let signalsData = [];
             let isLoading = false;
-            window.chartScanStarted = true;
             renderSignals();
             loadSignals();
             
@@ -295,9 +294,7 @@
                     }
                 } finally {
                     isLoading = false;
-                    if (signalsData.length) {
-                        renderSignals();
-                    }
+                    renderSignals();
                 }
             }
 
@@ -314,7 +311,7 @@
             
             function renderSignals() {
                 if (!signalsData || signalsData.length === 0) {
-                    const scanning = Boolean(window.chartScanStarted);
+                    const scanning = isLoading;
                     signalsBody.innerHTML = `
                             <tr class="signal-empty">
                                 <td colspan="9" style="text-align: center; padding: 40px;">
