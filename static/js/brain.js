@@ -1401,10 +1401,8 @@
                 history.push({ role: "assistant", content: data.reply });
                 window.aiChartActions.applyActions(data.actions || []);
                 if (voiceReply) {
-                    setVoiceModeStatus("JARVIS is speaking…");
                     await speakReply(data.reply);
                     if (voiceModeActive) {
-                        setVoiceModeStatus("Listening…");
                         startRecording();
                     } else {
                         exitVoiceMode();
@@ -1433,8 +1431,15 @@
         voiceStatus.textContent = message;
     }
 
-    function setVoiceModeStatus(message) {
-        if (voiceModeStatus) voiceModeStatus.textContent = message;
+    function setVoiceModeStatus(message, isError = false) {
+        if (!voiceModeStatus) return;
+        if (isError && message) {
+            voiceModeStatus.hidden = false;
+            voiceModeStatus.textContent = message;
+        } else {
+            voiceModeStatus.hidden = true;
+            voiceModeStatus.textContent = "";
+        }
         setVoiceStatus(message);
     }
 
@@ -1446,7 +1451,7 @@
             jarvisSphere.start();
             jarvisSphere.setState("idle");
         }
-        setVoiceModeStatus("Tap the microphone to speak with JARVIS");
+        setVoiceModeStatus("");
     }
 
     function exitVoiceMode() {
@@ -1460,12 +1465,12 @@
         }
         if (window.speechSynthesis) window.speechSynthesis.cancel();
         if (recorder && recorder.state === "recording") recorder.stop();
-        setVoiceStatus("");
+        setVoiceModeStatus("");
     }
 
     async function startRecording() {
         if (!navigator.mediaDevices || !window.MediaRecorder) {
-            setVoiceModeStatus("Voice recording is not supported by this browser.");
+            setVoiceModeStatus("Voice recording is not supported by this browser.", true);
             return;
         }
         try {
@@ -1479,12 +1484,12 @@
                 jarvisSphere.setStream(stream);
             }
 
-            // Start recording timer
+            // Recording timer for button tooltip
             recordingTimer = setInterval(() => {
                 const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
                 const minutes = Math.floor(elapsed / 60);
                 const seconds = elapsed % 60;
-                setVoiceModeStatus(`Listening… ${minutes}:${seconds.toString().padStart(2, '0')}`);
+                if (voiceBtn) voiceBtn.title = `Listening… ${minutes}:${seconds.toString().padStart(2, '0')}`;
             }, 1000);
             
             recorder.ondataavailable = (event) => {
@@ -1500,7 +1505,6 @@
                 voiceBtn.classList.remove("is-recording");
                 if (voiceModeMic) voiceModeMic.classList.remove("is-recording");
                 voiceBtn.disabled = true;
-                setVoiceModeStatus("Thinking…");
                 try {
                     const blob = new Blob(recordingChunks, { type: recorder.mimeType || "audio/webm" });
                     const formData = new FormData();
@@ -1508,11 +1512,10 @@
                     const response = await fetch("/api/ai/transcribe/", { method: "POST", body: formData });
                     const data = await response.json();
                     if (!response.ok || data.error) throw new Error(data.error || "Transcription failed.");
-                    setVoiceModeStatus("Thinking…");
                     await send(data.text, true);
                 } catch (error) {
                     if (jarvisSphere) jarvisSphere.setState("idle");
-                    setVoiceModeStatus(error.message || "Could not transcribe the recording.");
+                    setVoiceModeStatus(error.message || "Could not transcribe the recording.", true);
                 } finally {
                     voiceBtn.disabled = false;
                 }
@@ -1520,10 +1523,9 @@
             recorder.start();
             voiceBtn.classList.add("is-recording");
             if (voiceModeMic) voiceModeMic.classList.add("is-recording");
-            setVoiceModeStatus("Listening… 0:00");
         } catch (error) {
             if (jarvisSphere) jarvisSphere.setState("idle");
-            setVoiceModeStatus("Microphone access was denied or unavailable.");
+            setVoiceModeStatus("Microphone access was denied or unavailable.", true);
         }
     }
 
