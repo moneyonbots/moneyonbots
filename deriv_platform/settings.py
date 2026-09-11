@@ -27,7 +27,7 @@ ALLOWED_HOSTS = [
     host.strip()
     for host in os.getenv(
         "ALLOWED_HOSTS",
-        ".vercel.app,localhost,127.0.0.1,moneybots.vercel.app",
+        ".vercel.app,localhost,127.0.0.1,moneybots.vercel.app,moneyonbots.vercel.app",
     ).split(",")
     if host.strip()
 ]
@@ -38,6 +38,7 @@ if IS_VERCEL:
     for host in (
         ".vercel.app",
         "moneybots.vercel.app",
+        "moneyonbots.vercel.app",
         os.getenv("VERCEL_URL", ""),
         os.getenv("VERCEL_BRANCH_URL", ""),
         os.getenv("VERCEL_PROJECT_PRODUCTION_URL", ""),
@@ -53,6 +54,7 @@ if IS_VERCEL:
         os.getenv("VERCEL_BRANCH_URL", ""),
         os.getenv("VERCEL_PROJECT_PRODUCTION_URL", ""),
         "moneybots.vercel.app",
+        "moneyonbots.vercel.app",
     ):
         origin_host = origin_host.strip()
         if origin_host:
