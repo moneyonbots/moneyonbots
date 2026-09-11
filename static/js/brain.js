@@ -973,6 +973,10 @@
                 this.container.classList.remove("is-speaking", "is-listening", "is-thinking", "is-idle");
                 this.container.classList.add("is-" + state);
             }
+            if (voiceMode) {
+                voiceMode.classList.remove("is-speaking", "is-listening", "is-thinking", "is-idle");
+                voiceMode.classList.add("is-" + state);
+            }
         }
 
         start() {
@@ -1024,9 +1028,9 @@
             this.audioLevel += (this.targetAudioLevel - this.audioLevel) * 0.28;
 
             let speed = 0.025;
-            if (this.state === "thinking") speed = 0.085;
+            if (this.state === "thinking") speed = 0.075;
             else if (this.state === "speaking") speed = 0.045;
-            else if (this.state === "listening") speed = 0.038;
+            else if (this.state === "listening") speed = 0.040;
             this.t += speed;
 
             const baseRadius = (w * 0.32) * dpr;
@@ -1034,20 +1038,20 @@
             // 1. Outer Volumetric Corona Bloom
             const coronaGrad = ctx.createRadialGradient(cx, cy, baseRadius * 0.3, cx, cy, baseRadius * 1.55);
             if (this.state === "listening") {
-                coronaGrad.addColorStop(0, "rgba(239, 68, 68, 0.45)");
-                coronaGrad.addColorStop(0.5, "rgba(244, 63, 94, 0.2)");
-                coronaGrad.addColorStop(1, "rgba(239, 68, 68, 0)");
+                coronaGrad.addColorStop(0, "rgba(16, 185, 129, 0.55)");
+                coronaGrad.addColorStop(0.5, "rgba(52, 211, 153, 0.25)");
+                coronaGrad.addColorStop(1, "rgba(16, 185, 129, 0)");
             } else if (this.state === "thinking") {
-                coronaGrad.addColorStop(0, "rgba(168, 85, 247, 0.5)");
+                coronaGrad.addColorStop(0, "rgba(59, 130, 246, 0.5)");
                 coronaGrad.addColorStop(0.5, "rgba(99, 102, 241, 0.25)");
-                coronaGrad.addColorStop(1, "rgba(168, 85, 247, 0)");
+                coronaGrad.addColorStop(1, "rgba(59, 130, 246, 0)");
             } else if (this.state === "speaking") {
-                coronaGrad.addColorStop(0, "rgba(0, 242, 255, 0.55)");
-                coronaGrad.addColorStop(0.45, "rgba(168, 85, 247, 0.3)");
+                coronaGrad.addColorStop(0, "rgba(0, 242, 255, 0.65)");
+                coronaGrad.addColorStop(0.45, "rgba(0, 119, 255, 0.35)");
                 coronaGrad.addColorStop(1, "rgba(0, 242, 255, 0)");
             } else {
-                coronaGrad.addColorStop(0, "rgba(0, 242, 255, 0.35)");
-                coronaGrad.addColorStop(0.5, "rgba(38, 166, 154, 0.18)");
+                coronaGrad.addColorStop(0, "rgba(0, 242, 255, 0.4)");
+                coronaGrad.addColorStop(0.5, "rgba(0, 119, 255, 0.18)");
                 coronaGrad.addColorStop(1, "rgba(0, 242, 255, 0)");
             }
             ctx.fillStyle = coronaGrad;
@@ -1071,24 +1075,24 @@
                 ctx.scale(scaleX, scaleY);
                 const plasmaGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, baseRadius * 0.9);
                 if (this.state === "listening") {
-                    plasmaGrad.addColorStop(0, "rgba(255, 255, 255, 0.85)");
-                    plasmaGrad.addColorStop(0.35, "rgba(239, 68, 68, 0.7)");
-                    plasmaGrad.addColorStop(0.7, "rgba(244, 63, 94, 0.35)");
-                    plasmaGrad.addColorStop(1, "rgba(239, 68, 68, 0)");
+                    plasmaGrad.addColorStop(0, "rgba(255, 255, 255, 0.95)");
+                    plasmaGrad.addColorStop(0.35, "rgba(16, 185, 129, 0.85)");
+                    plasmaGrad.addColorStop(0.7, "rgba(5, 150, 105, 0.45)");
+                    plasmaGrad.addColorStop(1, "rgba(16, 185, 129, 0)");
                 } else if (this.state === "thinking") {
                     plasmaGrad.addColorStop(0, "rgba(255, 255, 255, 0.9)");
-                    plasmaGrad.addColorStop(0.3, "rgba(168, 85, 247, 0.8)");
+                    plasmaGrad.addColorStop(0.3, "rgba(59, 130, 246, 0.8)");
                     plasmaGrad.addColorStop(0.7, "rgba(99, 102, 241, 0.4)");
-                    plasmaGrad.addColorStop(1, "rgba(168, 85, 247, 0)");
+                    plasmaGrad.addColorStop(1, "rgba(59, 130, 246, 0)");
                 } else if (this.state === "speaking") {
                     plasmaGrad.addColorStop(0, "rgba(255, 255, 255, 0.95)");
-                    plasmaGrad.addColorStop(0.25, "rgba(0, 242, 255, 0.85)");
-                    plasmaGrad.addColorStop(0.65, "rgba(168, 85, 247, 0.5)");
+                    plasmaGrad.addColorStop(0.25, "rgba(0, 242, 255, 0.9)");
+                    plasmaGrad.addColorStop(0.65, "rgba(0, 119, 255, 0.55)");
                     plasmaGrad.addColorStop(1, "rgba(0, 242, 255, 0)");
                 } else {
-                    plasmaGrad.addColorStop(0, "rgba(255, 255, 255, 0.8)");
-                    plasmaGrad.addColorStop(0.3, "rgba(0, 242, 255, 0.65)");
-                    plasmaGrad.addColorStop(0.65, "rgba(79, 70, 229, 0.4)");
+                    plasmaGrad.addColorStop(0, "rgba(255, 255, 255, 0.85)");
+                    plasmaGrad.addColorStop(0.3, "rgba(0, 242, 255, 0.7)");
+                    plasmaGrad.addColorStop(0.65, "rgba(0, 119, 255, 0.45)");
                     plasmaGrad.addColorStop(1, "rgba(0, 242, 255, 0)");
                 }
                 ctx.fillStyle = plasmaGrad;
@@ -1102,7 +1106,7 @@
             // 4. Main 3D Liquid Morphing Blob
             const numPoints = 120;
             const points = [];
-            const morphAmp = (this.state === "listening" ? (6 + this.audioLevel * 36) :
+            const morphAmp = (this.state === "listening" ? (6 + this.audioLevel * 38) :
                               this.state === "thinking" ? 14 :
                               this.state === "speaking" ? (9 + Math.sin(this.t * 7) * 7) : 5) * dpr;
 
@@ -1140,22 +1144,22 @@
                 cy - Math.sin(this.t) * baseRadius
             );
             if (this.state === "listening") {
-                blobGrad.addColorStop(0, "rgba(255, 99, 132, 0.88)");
-                blobGrad.addColorStop(0.5, "rgba(239, 68, 68, 0.82)");
-                blobGrad.addColorStop(1, "rgba(159, 18, 57, 0.85)");
+                blobGrad.addColorStop(0, "rgba(52, 211, 153, 0.94)");
+                blobGrad.addColorStop(0.45, "rgba(16, 185, 129, 0.88)");
+                blobGrad.addColorStop(1, "rgba(5, 150, 105, 0.92)");
             } else if (this.state === "thinking") {
-                blobGrad.addColorStop(0, "rgba(192, 132, 252, 0.88)");
-                blobGrad.addColorStop(0.5, "rgba(129, 140, 248, 0.85)");
-                blobGrad.addColorStop(1, "rgba(79, 70, 229, 0.9)");
+                blobGrad.addColorStop(0, "rgba(96, 165, 250, 0.9)");
+                blobGrad.addColorStop(0.5, "rgba(59, 130, 246, 0.85)");
+                blobGrad.addColorStop(1, "rgba(37, 99, 235, 0.9)");
             } else if (this.state === "speaking") {
-                blobGrad.addColorStop(0, "rgba(103, 232, 249, 0.9)");
-                blobGrad.addColorStop(0.4, "rgba(167, 139, 250, 0.85)");
-                blobGrad.addColorStop(0.8, "rgba(251, 191, 36, 0.78)");
-                blobGrad.addColorStop(1, "rgba(6, 182, 212, 0.88)");
+                blobGrad.addColorStop(0, "rgba(103, 232, 249, 0.95)");
+                blobGrad.addColorStop(0.45, "rgba(0, 242, 255, 0.9)");
+                blobGrad.addColorStop(0.85, "rgba(0, 119, 255, 0.85)");
+                blobGrad.addColorStop(1, "rgba(29, 78, 216, 0.9)");
             } else {
-                blobGrad.addColorStop(0, "rgba(34, 211, 238, 0.88)");
-                blobGrad.addColorStop(0.5, "rgba(99, 102, 241, 0.82)");
-                blobGrad.addColorStop(1, "rgba(16, 185, 129, 0.85)");
+                blobGrad.addColorStop(0, "rgba(34, 211, 238, 0.9)");
+                blobGrad.addColorStop(0.5, "rgba(0, 150, 255, 0.85)");
+                blobGrad.addColorStop(1, "rgba(30, 64, 175, 0.88)");
             }
             ctx.fillStyle = blobGrad;
             ctx.fill();
@@ -1190,9 +1194,9 @@
 
             // Glowing perimeter rim stroke
             ctx.lineWidth = 2.5 * dpr;
-            ctx.strokeStyle = (this.state === "listening") ? "rgba(255, 255, 255, 0.8)" :
-                              (this.state === "speaking") ? "rgba(217, 249, 255, 0.9)" :
-                              (this.state === "thinking") ? "rgba(243, 232, 255, 0.85)" : "rgba(255, 255, 255, 0.65)";
+            ctx.strokeStyle = (this.state === "listening") ? "rgba(209, 250, 229, 0.9)" :
+                              (this.state === "speaking") ? "rgba(217, 249, 255, 0.95)" :
+                              (this.state === "thinking") ? "rgba(219, 234, 254, 0.85)" : "rgba(255, 255, 255, 0.7)";
             ctx.stroke();
             ctx.restore();
 
@@ -1202,6 +1206,9 @@
 
         drawParticles(ctx, cx, cy, dpr, isBack) {
             ctx.save();
+            const baseHue = (this.state === "listening") ? 155 :
+                            (this.state === "thinking") ? 225 :
+                            (this.state === "speaking") ? 190 : 195;
             for (const p of this.particles) {
                 p.angle += p.speed * (this.state === "thinking" ? 3.0 : (this.state === "speaking" ? 1.8 : 1.0));
                 const x3d = Math.cos(p.angle) * p.dist * dpr;
@@ -1219,8 +1226,8 @@
 
                 ctx.beginPath();
                 ctx.arc(px, py, size, 0, Math.PI * 2);
-                ctx.fillStyle = `hsla(${p.hue}, 90%, 65%, ${alpha})`;
-                ctx.shadowColor = `hsla(${p.hue}, 100%, 70%, 1)`;
+                ctx.fillStyle = `hsla(${baseHue}, 90%, 65%, ${alpha})`;
+                ctx.shadowColor = `hsla(${baseHue}, 100%, 70%, 1)`;
                 ctx.shadowBlur = (isBack ? 4 : 10) * dpr;
                 ctx.fill();
             }
