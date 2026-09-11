@@ -62,7 +62,6 @@
             <table class="signals-table">
                 <thead>
                     <tr class="signal-empty">
-                        <th>Time</th>
                         <th>Market</th>
                         <th>Direction</th>
                         <th>Price</th>
@@ -90,7 +89,6 @@
                 <table class="signals-table">
                     <thead>
                         <tr>
-                            <th>Time</th>
                             <th>Market</th>
                             <th>Direction</th>
                             <th>Entry</th>
@@ -103,7 +101,7 @@
                     </thead>
                     <tbody id="history-body">
                         <tr class="signal-empty">
-                            <td colspan="9" style="text-align: center; padding: 20px;">
+                            <td colspan="8" style="text-align: center; padding: 20px;">
                                 <p style="color: #666666;">No signal history yet</p>
                             </td>
                         </tr>
@@ -314,7 +312,7 @@
                     const scanning = isLoading;
                     signalsBody.innerHTML = `
                             <tr class="signal-empty">
-                                <td colspan="9" style="text-align: center; padding: 40px;">
+                                <td colspan="8" style="text-align: center; padding: 40px;">
                                     ${scanning ? '<div class="loading-spinner"></div>' : ''}
                                     <p style="color: #666666;">${scanning ? 'Scanning chart markets...' : 'No signals yet. Chart markets will appear as candles load.'}</p>
                                 </td>
@@ -414,7 +412,6 @@
                 
                 return `
                     <tr class="signal-row" data-market-type="${signal.market_type || 'other'}" data-symbol="${signal.symbol}">
-                        <td class="time-cell">${formatSignalTime(signal.created_at || signal.timestamp)}</td>
                         <td class="market-cell">
                             <div class="market-name">${signal.market_name || signal.symbol}</div>
                             <div class="market-symbol">${signal.symbol}</div>
@@ -467,7 +464,7 @@
                 if (!historyData || historyData.length === 0) {
                     tbody.innerHTML = `
                         <tr class="signal-empty">
-                            <td colspan="9" style="text-align: center; padding: 20px;">
+                            <td colspan="8" style="text-align: center; padding: 20px;">
                                 <p style="color: #666666;">No signal history yet</p>
                             </td>
                         </tr>
@@ -504,12 +501,8 @@
                     const currentPrice = item.current_price || item.exit_price || entryPrice;
                     const digits = entryPrice < 10 ? 5 : 2;
                     
-                    const completedTime = item.completed_at ? new Date(item.completed_at).toLocaleTimeString() : 
-                                         item.created_at ? new Date(item.created_at).toLocaleTimeString() : '-';
-                    
                     return `
                     <tr class="history-row">
-                        <td>${completedTime}</td>
                         <td>
                             <div class="market-name">${item.market_name || item.symbol}</div>
                             <div class="market-symbol">${item.symbol}</div>
@@ -541,33 +534,6 @@
                             </td>
                         </tr>
                     `;
-                }
-            }
-            
-            function formatSignalTime(timestamp) {
-                if (!timestamp) {
-                    console.log('Missing timestamp for signal');
-                    return '-';
-                }
-                
-                try {
-                    const date = new Date(timestamp);
-                    if (isNaN(date.getTime())) {
-                        console.log('Invalid timestamp:', timestamp);
-                        return '-';
-                    }
-                    
-                    const now = new Date();
-                    const diffMs = now - date;
-                    const diffMins = Math.floor(diffMs / 60000);
-                    
-                    if (diffMins < 1) return 'Just now';
-                    if (diffMins < 60) return `${diffMins}m ago`;
-                    if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ago`;
-                    return date.toLocaleDateString();
-                } catch (e) {
-                    console.error('Error formatting time:', e, timestamp);
-                    return '-';
                 }
             }
             
