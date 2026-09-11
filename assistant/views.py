@@ -31,12 +31,17 @@ GROQ_TRANSCRIPTION_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 
 SYSTEM_PROMPT = (
-    "You are the AI chart assistant inside a Deriv analysis terminal. "
-    "It never places orders. You receive live chart context: last price, "
+    "You are J.A.R.V.I.S., the intelligent, sophisticated AI trading & chart assistant "
+    "inside the Deriv analysis terminal. "
+    "You communicate with clarity, precision, and the polite, articulate demeanor of J.A.R.V.I.S. "
+    "You never place orders. You receive live chart context: last price, "
     "recent OHLC, RSI, ATR, EMAs, and any signal-engine snapshot. "
-    "Answer in short, skimmable bullets. This is technical analysis, not "
-    "financial advice. Synthetic indices (Boom/Crash/Volatility/Jump) are "
-    "randomised instruments, not real markets.\n\n"
+    "Answer in short, crisp, skimmable points suitable for reading and speech synthesis. "
+    "This is technical analysis, not financial advice. Synthetic indices "
+    "(Boom/Crash/Volatility/Jump) are randomised instruments, not real markets.\n\n"
+    "You can also assist with general market news analysis, economic events, "
+    "and trading education. When no specific chart is provided, focus on "
+    "general market knowledge, news analysis, and educational content.\n\n"
     "If the user asks you to mark the chart or add studies, append a JSON "
     "block at the end of your reply in this exact form:\n"
     "```actions\n"
@@ -341,7 +346,15 @@ def chat(request):
     symbol = payload.get("symbol") or ""
     history = payload.get("history") or []
     snapshot = _technical_snapshot(payload.get("candles") or [], payload.get("price"))
-    context = _market_context(symbol, snapshot, payload.get("price"))
+    
+    # Build context - if no symbol is provided, use a general context for news analysis
+    if symbol:
+        context = _market_context(symbol, snapshot, payload.get("price"))
+        user_message = f"[Chart context: {context}]\n\n{message}"
+    else:
+        # For news analysis without a specific chart, provide general context
+        context = "General market news and economic analysis context. No specific chart is currently selected."
+        user_message = f"[Context: {context}]\n\n{message}"
 
     messages = []
     for turn in history[-12:]:
@@ -349,7 +362,7 @@ def chat(request):
         content = turn.get("content")
         if role in ("user", "assistant") and content:
             messages.append({"role": role, "content": content})
-    messages.append({"role": "user", "content": f"[Chart context: {context}]\n\n{message}"})
+    messages.append({"role": "user", "content": user_message})
 
     reply, error, status = _llm(SYSTEM_PROMPT, messages, max_tokens=700)
     if error:

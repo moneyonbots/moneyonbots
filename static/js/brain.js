@@ -33,6 +33,8 @@
     const voiceModeMic = document.getElementById("brain-voice-mode-mic");
     const voiceModeClose = document.getElementById("brain-voice-mode-close");
     const voiceModeStatus = document.getElementById("brain-voice-mode-status");
+    const voiceOrbContainer = document.getElementById("brain-voice-orb-container");
+    const voiceCanvas = document.getElementById("brain-voice-canvas");
     const symbolLabel = document.getElementById("brain-current-symbol");
 
     const tabs = panel.querySelectorAll(".brain-tab");
@@ -748,6 +750,571 @@
     // Stock analysis functions removed - gap analysis tab removed from deriv chart panel
     // Stock analysis should be implemented separately for stock charts
 
+    // Voice cache & JARVIS speech synthesis engine
+    let availableVoices = [];
+    function refreshVoices() {
+        if (typeof window !== "undefined" && window.speechSynthesis) {
+            availableVoices = window.speechSynthesis.getVoices() || [];
+        }
+    }
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+        refreshVoices();
+        window.speechSynthesis.onvoiceschanged = refreshVoices;
+    }
+
+    function getJarvisVoice() {
+        const voices = (availableVoices && availableVoices.length) 
+            ? availableVoices 
+            : (window.speechSynthesis ? window.speechSynthesis.getVoices() : []);
+        if (!voices || voices.length === 0) return null;
+
+        function scoreVoice(v) {
+            const name = (v.name || "").toLowerCase();
+            const lang = (v.lang || "").toLowerCase().replace("_", "-");
+            let score = 0;
+
+            const isUK = lang.startsWith("en-gb") || name.includes("united kingdom") || name.includes("uk") || name.includes("british") || name.includes("english (united kingdom)");
+            const isEnglish = lang.startsWith("en");
+            if (!isEnglish) return -200;
+
+            const isNeural = name.includes("natural") || name.includes("neural") || name.includes("online") || name.includes("premium") || name.includes("enhanced");
+            const ukMaleNames = ["ryan", "george", "daniel", "oliver", "arthur", "brian", "guy", "charles", "alfred", "edward", "james", "william", "uk english male"];
+            const usMaleNames = ["guy", "christopher", "davis", "eric", "roger", "andrew", "brian", "david", "mark", "alex", "fred", "us english male"];
+            const femaleNames = ["zira", "susan", "hazel", "jenny", "aria", "sonia", "libby", "mia", "victoria", "karen", "samantha", "stephanie", "catherine", "heera", "female"];
+            const isFemale = femaleNames.some(f => name.includes(f));
+
+            if (isFemale) score -= 60;
+
+            if (isUK && ukMaleNames.some(n => name.includes(n)) && isNeural) {
+                score += 200;
+            } else if (isUK && ukMaleNames.some(n => name.includes(n))) {
+                score += 150;
+            } else if (isUK && isNeural && !isFemale) {
+                score += 120;
+            } else if (isUK && !isFemale) {
+                score += 90;
+            } else if (usMaleNames.some(n => name.includes(n)) && isNeural) {
+                score += 80;
+            } else if (usMaleNames.some(n => name.includes(n))) {
+                score += 60;
+            } else if (isNeural && !isFemale) {
+                score += 50;
+            } else if (isUK) {
+                score += 40;
+            } else if (!isFemale) {
+                score += 20;
+            }
+
+            if (name.includes("google uk english male")) score += 40;
+            if (name.includes("microsoft ryan")) score += 40;
+            if (name.includes("microsoft george")) score += 35;
+            if (name.includes("daniel")) score += 30;
+
+            return score;
+        }
+
+        let bestVoice = voices[0];
+        let bestScore = -999;
+        for (const v of voices) {
+            const s = scoreVoice(v);
+            if (s > bestScore) {
+                bestScore = s;
+                bestVoice = v;
+            }
+        }
+        return bestVoice;
+    }
+
+    function cleanTextForJarvisSpeech(rawText) {
+        if (!rawText) return "";
+        let text = String(rawText);
+
+        // Strip action blocks and markdown code blocks
+        text = text.replace(/```actions[\s\S]*?```/gi, "");
+        text = text.replace(/```[\s\S]*?```/g, "");
+        text = text.replace(/`([^`]+)`/g, "$1");
+
+        // Strip markdown links [label](url) -> label
+        text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+
+        // Strip headers, bold, italics, strikethrough, blockquotes
+        text = text.replace(/^#+\s+/gm, "");
+        text = text.replace(/(\*\*|__)(.*?)\1/g, "$2");
+        text = text.replace(/(\*|_)(.*?)\1/g, "$2");
+        text = text.replace(/~~(.*?)~~/g, "$1");
+        text = text.replace(/^\s*>\s+/gm, "");
+        text = text.replace(/^\s*[-*+•]\s+/gm, ". ");
+        text = text.replace(/^\s*\d+\.\s+/gm, ". ");
+
+        // Remove emojis and symbols
+        text = text.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F100}-\u{1F1FF}\u{1F200}-\u{1F2FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}]/gu, "");
+        text = text.replace(/[⚠✓✔✕✖★☆⚡📈📉🎯💡🚀💰🛡🤖]/g, "");
+
+        // Expand financial symbols and acronyms for natural spoken English
+        text = text.replace(/\bEUR\/USD\b/gi, "Euro to U.S. Dollar");
+        text = text.replace(/\bGBP\/USD\b/gi, "Pound to U.S. Dollar");
+        text = text.replace(/\bUSD\/JPY\b/gi, "U.S. Dollar to Japanese Yen");
+        text = text.replace(/\bAUD\/USD\b/gi, "Australian Dollar to U.S. Dollar");
+        text = text.replace(/\bUSD\/CAD\b/gi, "U.S. Dollar to Canadian Dollar");
+        text = text.replace(/\bUSD\/CHF\b/gi, "U.S. Dollar to Swiss Franc");
+        text = text.replace(/\bNZD\/USD\b/gi, "New Zealand Dollar to U.S. Dollar");
+        text = text.replace(/\b([A-Z]{3})\/([A-Z]{3})\b/g, "$1 to $2");
+
+        text = text.replace(/\bRSI\b/g, "R.S.I.");
+        text = text.replace(/\bMACD\b/g, "M.A.C.D.");
+        text = text.replace(/\bEMA\b/g, "E.M.A.");
+        text = text.replace(/\bSMA\b/g, "S.M.A.");
+        text = text.replace(/\bATR\b/g, "A.T.R.");
+        text = text.replace(/\bBB\b/g, "Bollinger Bands");
+        text = text.replace(/\bSL\b/g, "Stop Loss");
+        text = text.replace(/\bTP\b/g, "Take Profit");
+        text = text.replace(/\bR:R\b/gi, "risk to reward");
+        text = text.replace(/\b1:(\d+(\.\d+)?)\b/g, "1 to $1");
+        text = text.replace(/\bapprox\./gi, "approximately");
+        text = text.replace(/\bvs\.?\b/gi, "versus");
+        text = text.replace(/\bw\//gi, "with");
+        text = text.replace(/\bw\/o\b/gi, "without");
+        text = text.replace(/\bpts\b/gi, "points");
+        text = text.replace(/\bpt\b/gi, "point");
+        text = text.replace(/\bpips\b/gi, "pips");
+        text = text.replace(/\bpip\b/gi, "pip");
+        text = text.replace(/\bvol\b/gi, "volatility");
+        text = text.replace(/%/g, " percent");
+        text = text.replace(/\+/g, " plus ");
+        text = text.replace(/\$/g, " dollars ");
+
+        // Clean up punctuation and whitespace
+        text = text.replace(/[\r\n]+/g, ". ");
+        text = text.replace(/\s+/g, " ");
+        text = text.replace(/\.{2,}/g, ".");
+        text = text.replace(/\s+([.,!?;:])/g, "$1");
+        return text.trim();
+    }
+
+    // -------------------------------------------------------------------------
+    // Advanced 3D Liquid Morphing JARVIS Voice Sphere (Next-Gen Procedural Engine)
+    // -------------------------------------------------------------------------
+    class JarvisSphere {
+        constructor(canvas, container) {
+            this.canvas = canvas;
+            this.container = container;
+            this.ctx = canvas ? canvas.getContext("2d") : null;
+            this.state = "idle"; // "idle" | "listening" | "thinking" | "speaking"
+            this.animId = null;
+            this.t = 0;
+            this.audioLevel = 0;
+            this.targetAudioLevel = 0;
+            this.audioCtx = null;
+            this.analyser = null;
+            this.dataArray = null;
+            this.sourceNode = null;
+            this.particles = [];
+            this.initParticles();
+            this.setupDpr();
+        }
+
+        setupDpr() {
+            if (!this.canvas) return;
+            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            this.dpr = dpr;
+            const rect = this.canvas.getBoundingClientRect();
+            const size = rect.width || 220;
+            this.canvas.width = size * dpr;
+            this.canvas.height = size * dpr;
+            this.width = size;
+            this.height = size;
+        }
+
+        initParticles() {
+            this.particles = [];
+            for (let i = 0; i < 30; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const dist = 75 + Math.random() * 35;
+                this.particles.push({
+                    angle: angle,
+                    dist: dist,
+                    speed: 0.015 + Math.random() * 0.02,
+                    size: 1.2 + Math.random() * 2.2,
+                    z: (Math.random() - 0.5) * 60,
+                    opacity: 0.35 + Math.random() * 0.65,
+                    hue: Math.random() > 0.4 ? 185 : (Math.random() > 0.5 ? 260 : 45)
+                });
+            }
+        }
+
+        setStream(stream) {
+            if (!stream) return;
+            try {
+                const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+                if (!AudioCtxClass) return;
+                if (!this.audioCtx) this.audioCtx = new AudioCtxClass();
+                if (this.audioCtx.state === "suspended") this.audioCtx.resume();
+                this.analyser = this.audioCtx.createAnalyser();
+                this.analyser.fftSize = 256;
+                this.analyser.smoothingTimeConstant = 0.75;
+                this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+                this.sourceNode = this.audioCtx.createMediaStreamSource(stream);
+                this.sourceNode.connect(this.analyser);
+            } catch (err) {
+                console.warn("JarvisSphere WebAudio init failed", err);
+            }
+        }
+
+        stopStream() {
+            if (this.sourceNode) {
+                try { this.sourceNode.disconnect(); } catch (e) {}
+                this.sourceNode = null;
+            }
+        }
+
+        setState(state) {
+            this.state = state;
+            if (this.container) {
+                this.container.classList.remove("is-speaking", "is-listening", "is-thinking", "is-idle");
+                this.container.classList.add("is-" + state);
+            }
+        }
+
+        start() {
+            if (!this.canvas) return;
+            if (this.animId) return;
+            this.setupDpr();
+            const loop = () => {
+                this.draw();
+                this.animId = requestAnimationFrame(loop);
+            };
+            this.animId = requestAnimationFrame(loop);
+        }
+
+        stop() {
+            if (this.animId) {
+                cancelAnimationFrame(this.animId);
+                this.animId = null;
+            }
+            this.stopStream();
+            if (this.ctx && this.canvas) {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            }
+        }
+
+        draw() {
+            if (!this.ctx || !this.canvas) return;
+            const ctx = this.ctx;
+            const w = this.width;
+            const h = this.height;
+            const dpr = this.dpr || 1;
+            const cx = (w / 2) * dpr;
+            const cy = (h / 2) * dpr;
+
+            ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+            // Audio amplitude evaluation
+            if (this.analyser && this.dataArray) {
+                this.analyser.getByteFrequencyData(this.dataArray);
+                let sum = 0;
+                const count = Math.min(this.dataArray.length, 32);
+                for (let i = 0; i < count; i++) {
+                    sum += this.dataArray[i];
+                }
+                const avg = sum / (count * 255);
+                this.targetAudioLevel = avg;
+            } else {
+                this.targetAudioLevel = 0;
+            }
+            this.audioLevel += (this.targetAudioLevel - this.audioLevel) * 0.28;
+
+            let speed = 0.025;
+            if (this.state === "thinking") speed = 0.085;
+            else if (this.state === "speaking") speed = 0.045;
+            else if (this.state === "listening") speed = 0.038;
+            this.t += speed;
+
+            const baseRadius = (w * 0.32) * dpr;
+
+            // 1. Outer Volumetric Corona Bloom
+            const coronaGrad = ctx.createRadialGradient(cx, cy, baseRadius * 0.3, cx, cy, baseRadius * 1.55);
+            if (this.state === "listening") {
+                coronaGrad.addColorStop(0, "rgba(239, 68, 68, 0.45)");
+                coronaGrad.addColorStop(0.5, "rgba(244, 63, 94, 0.2)");
+                coronaGrad.addColorStop(1, "rgba(239, 68, 68, 0)");
+            } else if (this.state === "thinking") {
+                coronaGrad.addColorStop(0, "rgba(168, 85, 247, 0.5)");
+                coronaGrad.addColorStop(0.5, "rgba(99, 102, 241, 0.25)");
+                coronaGrad.addColorStop(1, "rgba(168, 85, 247, 0)");
+            } else if (this.state === "speaking") {
+                coronaGrad.addColorStop(0, "rgba(0, 242, 255, 0.55)");
+                coronaGrad.addColorStop(0.45, "rgba(168, 85, 247, 0.3)");
+                coronaGrad.addColorStop(1, "rgba(0, 242, 255, 0)");
+            } else {
+                coronaGrad.addColorStop(0, "rgba(0, 242, 255, 0.35)");
+                coronaGrad.addColorStop(0.5, "rgba(38, 166, 154, 0.18)");
+                coronaGrad.addColorStop(1, "rgba(0, 242, 255, 0)");
+            }
+            ctx.fillStyle = coronaGrad;
+            ctx.beginPath();
+            ctx.arc(cx, cy, baseRadius * 1.55, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 2. Background Orbital Particles (z < 0)
+            this.drawParticles(ctx, cx, cy, dpr, true);
+
+            // 3. Swirling Internal Plasma Vortices (JARVIS Core)
+            ctx.save();
+            ctx.globalCompositeOperation = "screen";
+            for (let p = 0; p < 3; p++) {
+                const rot = this.t * (p % 2 === 0 ? 1 : -1.2) + (p * Math.PI / 1.5);
+                const scaleX = 0.85 + Math.sin(this.t * 2 + p) * 0.15;
+                const scaleY = 0.7 + Math.cos(this.t * 1.5 + p) * 0.15;
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.rotate(rot);
+                ctx.scale(scaleX, scaleY);
+                const plasmaGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, baseRadius * 0.9);
+                if (this.state === "listening") {
+                    plasmaGrad.addColorStop(0, "rgba(255, 255, 255, 0.85)");
+                    plasmaGrad.addColorStop(0.35, "rgba(239, 68, 68, 0.7)");
+                    plasmaGrad.addColorStop(0.7, "rgba(244, 63, 94, 0.35)");
+                    plasmaGrad.addColorStop(1, "rgba(239, 68, 68, 0)");
+                } else if (this.state === "thinking") {
+                    plasmaGrad.addColorStop(0, "rgba(255, 255, 255, 0.9)");
+                    plasmaGrad.addColorStop(0.3, "rgba(168, 85, 247, 0.8)");
+                    plasmaGrad.addColorStop(0.7, "rgba(99, 102, 241, 0.4)");
+                    plasmaGrad.addColorStop(1, "rgba(168, 85, 247, 0)");
+                } else if (this.state === "speaking") {
+                    plasmaGrad.addColorStop(0, "rgba(255, 255, 255, 0.95)");
+                    plasmaGrad.addColorStop(0.25, "rgba(0, 242, 255, 0.85)");
+                    plasmaGrad.addColorStop(0.65, "rgba(168, 85, 247, 0.5)");
+                    plasmaGrad.addColorStop(1, "rgba(0, 242, 255, 0)");
+                } else {
+                    plasmaGrad.addColorStop(0, "rgba(255, 255, 255, 0.8)");
+                    plasmaGrad.addColorStop(0.3, "rgba(0, 242, 255, 0.65)");
+                    plasmaGrad.addColorStop(0.65, "rgba(79, 70, 229, 0.4)");
+                    plasmaGrad.addColorStop(1, "rgba(0, 242, 255, 0)");
+                }
+                ctx.fillStyle = plasmaGrad;
+                ctx.beginPath();
+                ctx.arc(0, 0, baseRadius * 0.9, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+            ctx.restore();
+
+            // 4. Main 3D Liquid Morphing Blob
+            const numPoints = 120;
+            const points = [];
+            const morphAmp = (this.state === "listening" ? (6 + this.audioLevel * 36) :
+                              this.state === "thinking" ? 14 :
+                              this.state === "speaking" ? (9 + Math.sin(this.t * 7) * 7) : 5) * dpr;
+
+            for (let i = 0; i < numPoints; i++) {
+                const angle = (i / numPoints) * Math.PI * 2;
+                const w1 = Math.sin(angle * 2 + this.t * 2.2);
+                const w2 = Math.cos(angle * 3 - this.t * 1.8);
+                const w3 = Math.sin(angle * 5 + this.t * 3.1) * 0.5;
+                const w4 = Math.cos(angle * 7 - this.t * 4.0) * 0.25;
+                const distortion = (w1 + w2 + w3 + w4) * morphAmp;
+                const r = baseRadius + distortion;
+                points.push({
+                    x: cx + Math.cos(angle) * r,
+                    y: cy + Math.sin(angle) * r
+                });
+            }
+
+            // Render Blob Path with smooth curves
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo((points[0].x + points[numPoints - 1].x) / 2, (points[0].y + points[numPoints - 1].y) / 2);
+            for (let i = 0; i < numPoints; i++) {
+                const next = points[(i + 1) % numPoints];
+                const midX = (points[i].x + next.x) / 2;
+                const midY = (points[i].y + next.y) / 2;
+                ctx.quadraticCurveTo(points[i].x, points[i].y, midX, midY);
+            }
+            ctx.closePath();
+
+            // Membrane gradient fill
+            const blobGrad = ctx.createLinearGradient(
+                cx + Math.cos(this.t) * baseRadius,
+                cy + Math.sin(this.t) * baseRadius,
+                cx - Math.cos(this.t) * baseRadius,
+                cy - Math.sin(this.t) * baseRadius
+            );
+            if (this.state === "listening") {
+                blobGrad.addColorStop(0, "rgba(255, 99, 132, 0.88)");
+                blobGrad.addColorStop(0.5, "rgba(239, 68, 68, 0.82)");
+                blobGrad.addColorStop(1, "rgba(159, 18, 57, 0.85)");
+            } else if (this.state === "thinking") {
+                blobGrad.addColorStop(0, "rgba(192, 132, 252, 0.88)");
+                blobGrad.addColorStop(0.5, "rgba(129, 140, 248, 0.85)");
+                blobGrad.addColorStop(1, "rgba(79, 70, 229, 0.9)");
+            } else if (this.state === "speaking") {
+                blobGrad.addColorStop(0, "rgba(103, 232, 249, 0.9)");
+                blobGrad.addColorStop(0.4, "rgba(167, 139, 250, 0.85)");
+                blobGrad.addColorStop(0.8, "rgba(251, 191, 36, 0.78)");
+                blobGrad.addColorStop(1, "rgba(6, 182, 212, 0.88)");
+            } else {
+                blobGrad.addColorStop(0, "rgba(34, 211, 238, 0.88)");
+                blobGrad.addColorStop(0.5, "rgba(99, 102, 241, 0.82)");
+                blobGrad.addColorStop(1, "rgba(16, 185, 129, 0.85)");
+            }
+            ctx.fillStyle = blobGrad;
+            ctx.fill();
+
+            // 5. Inner Glass Reflection & Highlights
+            ctx.save();
+            ctx.clip();
+
+            // Specular highlight bubble
+            const specX = cx - baseRadius * 0.32;
+            const specY = cy - baseRadius * 0.32;
+            const specGrad = ctx.createRadialGradient(specX, specY, 0, specX, specY, baseRadius * 0.7);
+            specGrad.addColorStop(0, "rgba(255, 255, 255, 0.85)");
+            specGrad.addColorStop(0.25, "rgba(255, 255, 255, 0.35)");
+            specGrad.addColorStop(0.7, "rgba(255, 255, 255, 0)");
+            ctx.fillStyle = specGrad;
+            ctx.beginPath();
+            ctx.arc(specX, specY, baseRadius * 0.7, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Inner shadow rim
+            const innerShadowGrad = ctx.createRadialGradient(cx, cy, baseRadius * 0.4, cx, cy, baseRadius * 1.05);
+            innerShadowGrad.addColorStop(0, "rgba(0, 0, 0, 0)");
+            innerShadowGrad.addColorStop(0.75, "rgba(0, 0, 0, 0.15)");
+            innerShadowGrad.addColorStop(1, "rgba(0, 0, 0, 0.65)");
+            ctx.fillStyle = innerShadowGrad;
+            ctx.beginPath();
+            ctx.arc(cx, cy, baseRadius * 1.1, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+
+            // Glowing perimeter rim stroke
+            ctx.lineWidth = 2.5 * dpr;
+            ctx.strokeStyle = (this.state === "listening") ? "rgba(255, 255, 255, 0.8)" :
+                              (this.state === "speaking") ? "rgba(217, 249, 255, 0.9)" :
+                              (this.state === "thinking") ? "rgba(243, 232, 255, 0.85)" : "rgba(255, 255, 255, 0.65)";
+            ctx.stroke();
+            ctx.restore();
+
+            // 6. Foreground Orbital Particles (z >= 0)
+            this.drawParticles(ctx, cx, cy, dpr, false);
+        }
+
+        drawParticles(ctx, cx, cy, dpr, isBack) {
+            ctx.save();
+            for (const p of this.particles) {
+                p.angle += p.speed * (this.state === "thinking" ? 3.0 : (this.state === "speaking" ? 1.8 : 1.0));
+                const x3d = Math.cos(p.angle) * p.dist * dpr;
+                const y3d = Math.sin(p.angle) * p.dist * 0.38 * dpr;
+                const z3d = Math.sin(p.angle) * p.dist * dpr;
+
+                const isCurrentBack = z3d < 0;
+                if (isCurrentBack !== isBack) continue;
+
+                const alpha = isBack ? p.opacity * 0.35 : p.opacity;
+                const size = (isBack ? p.size * 0.75 : p.size * 1.25) * dpr;
+
+                const px = cx + x3d;
+                const py = cy + y3d + (Math.sin(this.t + p.angle) * 6 * dpr);
+
+                ctx.beginPath();
+                ctx.arc(px, py, size, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${p.hue}, 90%, 65%, ${alpha})`;
+                ctx.shadowColor = `hsla(${p.hue}, 100%, 70%, 1)`;
+                ctx.shadowBlur = (isBack ? 4 : 10) * dpr;
+                ctx.fill();
+            }
+            ctx.restore();
+        }
+    }
+
+    const jarvisSphere = voiceCanvas ? new JarvisSphere(voiceCanvas, voiceOrbContainer) : null;
+
+    let currentSpeechSession = 0;
+
+    function speakReply(text) {
+        if (!text || !window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+            return Promise.resolve();
+        }
+        
+        window.speechSynthesis.cancel();
+        const sessionId = ++currentSpeechSession;
+        
+        const cleaned = cleanTextForJarvisSpeech(text);
+        if (!cleaned) return Promise.resolve();
+
+        const rawChunks = cleaned.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [cleaned];
+        const chunks = rawChunks.map(c => c.trim()).filter(Boolean);
+        if (!chunks.length) return Promise.resolve();
+
+        const jarvisVoice = getJarvisVoice();
+        if (jarvisSphere) jarvisSphere.setState("speaking");
+
+        return new Promise((resolve) => {
+            let chunkIndex = 0;
+            let keepAliveTimer = null;
+
+            function finish() {
+                if (keepAliveTimer) clearInterval(keepAliveTimer);
+                if (jarvisSphere && jarvisSphere.state === "speaking") {
+                    jarvisSphere.setState(voiceModeActive ? "listening" : "idle");
+                }
+                resolve();
+            }
+
+            // Chrome keep-alive bugfix
+            keepAliveTimer = setInterval(() => {
+                if (sessionId !== currentSpeechSession) {
+                    finish();
+                    return;
+                }
+                if (window.speechSynthesis.speaking) {
+                    window.speechSynthesis.pause();
+                    window.speechSynthesis.resume();
+                }
+            }, 8000);
+
+            function speakNext() {
+                if (sessionId !== currentSpeechSession) {
+                    finish();
+                    return;
+                }
+                if (chunkIndex >= chunks.length) {
+                    finish();
+                    return;
+                }
+
+                const chunkText = chunks[chunkIndex++];
+                const utterance = new SpeechSynthesisUtterance(chunkText);
+                
+                // Refined JARVIS acoustic parameters
+                utterance.rate = 1.0;
+                utterance.pitch = 0.95;
+                utterance.volume = 1.0;
+
+                if (jarvisVoice) {
+                    utterance.voice = jarvisVoice;
+                }
+
+                utterance.onend = () => {
+                    if (sessionId === currentSpeechSession) {
+                        speakNext();
+                    } else {
+                        finish();
+                    }
+                };
+
+                utterance.onerror = () => {
+                    finish();
+                };
+
+                window.speechSynthesis.speak(utterance);
+            }
+
+            speakNext();
+        });
+    }
+
     function addMessage(role, text) {
         const div = document.createElement("div");
         div.className = "brain-msg brain-msg-" + (role === "user" ? "user" : "ai");
@@ -757,6 +1324,24 @@
             div.innerHTML = '<span class="thinking-indicator"><span></span><span></span><span></span></span>';
         } else {
             div.textContent = text;
+            if (role === "ai" && text && text.trim() && text !== "thinking") {
+                const speakBtn = document.createElement("button");
+                speakBtn.type = "button";
+                speakBtn.className = "brain-msg-speak";
+                speakBtn.title = "Speak with JARVIS voice";
+                speakBtn.setAttribute("aria-label", "Speak with JARVIS voice");
+                speakBtn.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>';
+                speakBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    if (window.speechSynthesis && window.speechSynthesis.speaking) {
+                        window.speechSynthesis.cancel();
+                        if (jarvisSphere) jarvisSphere.setState("idle");
+                    } else {
+                        speakReply(text);
+                    }
+                });
+                div.appendChild(speakBtn);
+            }
         }
         
         messages.appendChild(div);
@@ -769,21 +1354,6 @@
         voiceBtn.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
-        });
-    }
-
-    function speakReply(text) {
-        if (!text || !window.speechSynthesis || !window.SpeechSynthesisUtterance) {
-            return Promise.resolve();
-        }
-        window.speechSynthesis.cancel();
-        return new Promise((resolve) => {
-            const utterance = new SpeechSynthesisUtterance(text.replace(/```[\s\S]*?```/g, ""));
-            utterance.rate = 1.02;
-            utterance.pitch = 1;
-            utterance.onend = resolve;
-            utterance.onerror = resolve;
-            window.speechSynthesis.speak(utterance);
         });
     }
 
@@ -806,6 +1376,10 @@
         payload.message = message;
         payload.history = history.slice(0, -1);
 
+        if (voiceReply && jarvisSphere) {
+            jarvisSphere.setState("thinking");
+        }
+
         try {
             const res = await fetch("/api/ai/chat/", {
                 method: "POST",
@@ -821,14 +1395,20 @@
             thinking.remove();
             if (data.error) {
                 addMessage("ai", "⚠ " + data.error);
+                if (voiceReply && jarvisSphere) jarvisSphere.setState("idle");
             } else {
                 addMessage("ai", data.reply);
                 history.push({ role: "assistant", content: data.reply });
                 window.aiChartActions.applyActions(data.actions || []);
                 if (voiceReply) {
-                    setVoiceModeStatus("Speaking...");
+                    setVoiceModeStatus("JARVIS is speaking…");
                     await speakReply(data.reply);
-                    exitVoiceMode();
+                    if (voiceModeActive) {
+                        setVoiceModeStatus("Listening…");
+                        startRecording();
+                    } else {
+                        exitVoiceMode();
+                    }
                 }
             }
         } catch (e) {
@@ -862,13 +1442,23 @@
         voiceModeActive = true;
         panel.classList.add("voice-mode-open");
         voiceMode.hidden = false;
-        setVoiceModeStatus("Tap the microphone to speak");
+        if (jarvisSphere) {
+            jarvisSphere.start();
+            jarvisSphere.setState("idle");
+        }
+        setVoiceModeStatus("Tap the microphone to speak with JARVIS");
     }
 
     function exitVoiceMode() {
+        currentSpeechSession++;
         voiceModeActive = false;
         panel.classList.remove("voice-mode-open");
         voiceMode.hidden = true;
+        if (jarvisSphere) {
+            jarvisSphere.setState("idle");
+            jarvisSphere.stop();
+        }
+        if (window.speechSynthesis) window.speechSynthesis.cancel();
         if (recorder && recorder.state === "recording") recorder.stop();
         setVoiceStatus("");
     }
@@ -884,6 +1474,11 @@
             recordingStartTime = Date.now();
             recorder = new MediaRecorder(stream);
             
+            if (jarvisSphere) {
+                jarvisSphere.setState("listening");
+                jarvisSphere.setStream(stream);
+            }
+
             // Start recording timer
             recordingTimer = setInterval(() => {
                 const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
@@ -898,6 +1493,10 @@
             recorder.onstop = async () => {
                 clearInterval(recordingTimer);
                 stream.getTracks().forEach((track) => track.stop());
+                if (jarvisSphere) {
+                    jarvisSphere.stopStream();
+                    jarvisSphere.setState("thinking");
+                }
                 voiceBtn.classList.remove("is-recording");
                 if (voiceModeMic) voiceModeMic.classList.remove("is-recording");
                 voiceBtn.disabled = true;
@@ -912,6 +1511,7 @@
                     setVoiceModeStatus("Thinking…");
                     await send(data.text, true);
                 } catch (error) {
+                    if (jarvisSphere) jarvisSphere.setState("idle");
                     setVoiceModeStatus(error.message || "Could not transcribe the recording.");
                 } finally {
                     voiceBtn.disabled = false;
@@ -922,6 +1522,7 @@
             if (voiceModeMic) voiceModeMic.classList.add("is-recording");
             setVoiceModeStatus("Listening… 0:00");
         } catch (error) {
+            if (jarvisSphere) jarvisSphere.setState("idle");
             setVoiceModeStatus("Microphone access was denied or unavailable.");
         }
     }
