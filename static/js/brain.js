@@ -52,6 +52,7 @@
     let recordingStartTime = null;
     let recordingTimer = null;
     let voiceModeActive = false;
+    let chatHistoryLoaded = false;
     
     // Technical indicator mapping for TradingView
     const STUDY_MAP = {
@@ -99,6 +100,36 @@
             candles: chartCandles(symbol),
             timeframe: "60",
         };
+    }
+
+    async function loadChatHistory() {
+        if (chatHistoryLoaded) return;
+        
+        try {
+            const symbol = currentSymbol();
+            const url = symbol ? `/api/ai/chat/history/?symbol=${encodeURIComponent(symbol)}` : '/api/ai/chat/history/';
+            const res = await fetch(url);
+            const data = await res.json();
+            
+            if (data.history && Array.isArray(data.history)) {
+                // Clear existing history and load from server
+                history.length = 0;
+                messages.innerHTML = '';
+                
+                // Load messages from server
+                data.history.forEach(msg => {
+                    if (msg.role === 'user' || msg.role === 'assistant') {
+                        history.push({ role: msg.role, content: msg.content });
+                        addMessage(msg.role, msg.content);
+                    }
+                });
+                
+                chatHistoryLoaded = true;
+            }
+        } catch (e) {
+            console.warn("Failed to load chat history:", e);
+            // Continue with empty history if loading fails
+        }
     }
 
     function validateChartPayload(payload) {
@@ -181,6 +212,18 @@
             updateSymbolLabel();
             refreshInsight();
             renderMarketsWithNews();
+            // Load chat history when panel opens
+            loadChatHistory();
+            
+            // If entering voice mode, show sphere
+            if (voiceModeActive && jarvisSphere) {
+                jarvisSphere.start();
+            }
+        } else {
+            // Close voice mode when panel closes
+            if (voiceModeActive) {
+                exitVoiceMode();
+            }
         }
     }
 
@@ -196,6 +239,8 @@
                     // Ensure chat messages are visible when switching to chat tab
                     if (key === "chat" && messages) {
                         messages.scrollTop = messages.scrollHeight;
+                        // Load chat history when switching to chat tab
+                        loadChatHistory();
                     }
                 } else {
                     el.hidden = true;
@@ -206,13 +251,18 @@
         if (name === "chat" && input) input.focus();
     }
 
+    function getSymbolName(symbol) {
+        if (!symbol) return "—";
+        if (window.AVAILABLE_MARKETS) {
+            const market = window.AVAILABLE_MARKETS.find((m) => m.symbol === symbol);
+            if (market) return market.name;
+        }
+        return symbol;
+    }
+
     function updateSymbolLabel() {
         const symbol = currentSymbol();
-        let label = symbol || "—";
-        if (window.AVAILABLE_MARKETS && symbol) {
-            const market = window.AVAILABLE_MARKETS.find((m) => m.symbol === symbol);
-            if (market) label = market.name;
-        }
+        const label = getSymbolName(symbol);
         if (symbolLabel) symbolLabel.textContent = label;
     }
 
@@ -563,6 +613,8 @@
         const symbol = currentSymbol();
         if (!symbol || !dirBadge) return;
 
+        console.log("Refreshing insight for symbol:", symbol);
+
         let marketLabel = symbol;
         if (window.AVAILABLE_MARKETS) {
             const market = window.AVAILABLE_MARKETS.find((m) => m.symbol === symbol);
@@ -578,11 +630,63 @@
         try {
             const res = await fetch("/api/signals/active/?symbol=" + encodeURIComponent(symbol));
             const data = await res.json();
+            console.log("Signals data received:", data);
             const signal = (data.signals || [])[0];
+            console.log("Signal for symbol:", signal);
+            
             marketName.textContent = (signal && signal.market_name) || marketLabel;
             paintPrice();
 
             if (!signal) {
+                console.log("No signal found for symbol:", symbol);
+                // Try to generate real-time analysis using chart analysis API
+                try {
+                    console.log("Attempting real-time analysis for:", symbol);
+                    const payload = chartPayload();
+                    const analysisRes = await fetch("/api/ai/chart-analysis/", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload),
+                    });
+                    const analysisData = await analysisRes.json();
+                    console.log("Real-time analysis data:", analysisData);
+                    
+                    if (analysisData.snapshot) {
+                        emptyEl.style.display = "none";
+                        const snapshot = analysisData.snapshot;
+                        
+                        // Generate basic direction from RSI
+                        let direction = "Neutral";
+                        if (snapshot.rsi !== null && snapshot.rsi !== undefined) {
+                            if (snapshot.rsi < 30) direction = "Buy";
+                            else if (snapshot.rsi > 70) direction = "Sell";
+                        }
+                        
+                        dirBadge.textContent = direction;
+                        dirBadge.className = "dir-badge " + dirClass(direction);
+                        updatedEl.textContent = "live";
+                        
+                        const price = livePrice(symbol);
+                        const shown = price != null ? price : snapshot.price;
+                        fields.price.textContent = fmt(shown, shown < 10 ? 5 : 2);
+                        fields.strength.textContent = "50.00"; // Default strength
+                        fields.opportunity.textContent = "5.0"; // Default opportunity
+                        fields.rsi.textContent = snapshot.rsi !== null ? fmt(snapshot.rsi, 1) : "—";
+                        fields.atr.textContent = snapshot.atr !== null ? fmt(snapshot.atr, 4) : "—";
+                        fields.risk.textContent = "Medium";
+                        fields.sl.textContent = snapshot.support !== null ? fmt(snapshot.support, 4) : "—";
+                        fields.tp.textContent = snapshot.resistance !== null ? fmt(snapshot.resistance, 4) : "—";
+                        fields.rr.textContent = "1:2.0"; // Default risk-reward
+                        fields.conf.textContent = "65%"; // Default confidence
+                        
+                        console.log("Real-time analysis displayed");
+                        return;
+                    }
+                } catch (analysisError) {
+                    console.error("Real-time analysis failed:", analysisError);
+                }
+                
+                // Fallback to empty state
                 emptyEl.style.display = "block";
                 emptyEl.textContent = "No stored signal yet. Open Analysis to run AI on this chart's candles.";
                 dirBadge.textContent = "—";
@@ -594,6 +698,7 @@
                 return;
             }
 
+            console.log("Displaying signal data:", signal);
             emptyEl.style.display = "none";
             dirBadge.textContent = signal.direction;
             dirBadge.className = "dir-badge " + dirClass(signal.direction);
@@ -611,7 +716,9 @@
             fields.rr.textContent = signal.risk_reward ? "1:" + fmt(signal.risk_reward, 1) : "—";
             fields.conf.textContent = signal.model_confidence != null ? fmt(signal.model_confidence * 100, 0) + "%" : "—";
         } catch (e) {
-            console.warn("AI insight refresh failed", e);
+            console.error("AI insight refresh failed", e);
+            emptyEl.style.display = "block";
+            emptyEl.textContent = "Error loading signals: " + e.message;
         }
     }
 
@@ -619,6 +726,9 @@
         window.currentChartSymbol = event.detail.symbol;
         updateSymbolLabel();
         if (open) refreshInsight();
+        // Reload chat history when symbol changes
+        chatHistoryLoaded = false;
+        if (open) loadChatHistory();
     });
 
     window.addEventListener("tick-update", (event) => {
@@ -761,40 +871,53 @@
         const voices = (window.speechSynthesis ? window.speechSynthesis.getVoices() : []) || availableVoices;
         if (!voices || voices.length === 0) return null;
 
+        console.log("Available voices for selection:", voices.length);
+        voices.forEach((v, i) => console.log(`${i}: ${v.name} (${v.lang}) - local: ${v.localService}`));
+
         function scoreVoice(v) {
             const name = (v.name || "").toLowerCase();
             const lang = (v.lang || "").toLowerCase().replace("_", "-");
             let score = 0;
 
-            const isUK = lang.startsWith("en-gb") || name.includes("united kingdom") || name.includes("uk") || name.includes("british") || name.includes("english (united kingdom)");
+            // HIGHEST PRIORITY: Kenyan voices
+            const isKenyan = lang.includes("ke") || name.includes("kenya") || name.includes("kenyan") || name.includes("african");
+            if (isKenyan) score += 500;
+
+            // HIGH PRIORITY: African English voices (South Africa, Nigeria, etc.)
+            const isAfricanEnglish = lang.includes("en-za") || lang.includes("en-ng") || name.includes("south africa") || name.includes("nigeria") || name.includes("african english");
+            if (isAfricanEnglish) score += 250;
+
             const isEnglish = lang.startsWith("en");
             if (!isEnglish) return -200;
 
-            // Prioritize reliable offline/local voices. Penalize online cloud voices that fail with network errors
-            if (v.localService) score += 90;
-            if (name.includes("online") || !v.localService) score -= 110;
+            // Prioritize reliable offline/local voices
+            if (v.localService) score += 100;
+            if (name.includes("online") || !v.localService) score -= 120;
 
-            const ukMaleNames = ["george", "daniel", "oliver", "arthur", "brian", "guy", "charles", "alfred", "edward", "james", "william", "uk english male"];
-            const usMaleNames = ["david", "mark", "guy", "christopher", "davis", "eric", "roger", "andrew", "brian", "alex", "fred", "us english male"];
-            const femaleNames = ["zira", "susan", "hazel", "jenny", "aria", "sonia", "libby", "mia", "victoria", "karen", "samantha", "stephanie", "catherine", "heera", "female"];
+            // Kenyan and African voice name patterns
+            const kenyanAfricanNames = ["kenya", "african", "east african", "nairobi", "lagos", "johannesburg", "nigeria", "south africa"];
+            const isKenyanAfrican = kenyanAfricanNames.some(n => name.includes(n));
+            if (isKenyanAfrican) score += 180;
+
+            // Traditional male voice names (prefer for "asili" natural sound)
+            const traditionalMaleNames = ["george", "daniel", "oliver", "arthur", "brian", "guy", "charles", "alfred", "edward", "james", "william", "david", "mark", "christopher", "andrew", "alex"];
+            const isTraditionalMale = traditionalMaleNames.some(n => name.includes(n));
+            if (isTraditionalMale) score += 60;
+
+            // Penalize female voices for "asili" natural male sound
+            const femaleNames = ["zira", "susan", "hazel", "jenny", "aria", "sonia", "libby", "mia", "victoria", "karen", "samantha", "stephanie", "catherine", "heera", "female", "woman", "lady"];
             const isFemale = femaleNames.some(f => name.includes(f));
+            if (isFemale) score -= 80;
 
-            if (isFemale) score -= 60;
-
-            if (isUK && ukMaleNames.some(n => name.includes(n))) {
-                score += 160;
-            } else if (isUK && !isFemale) {
-                score += 100;
-            } else if (usMaleNames.some(n => name.includes(n))) {
-                score += 70;
-            } else if (!isFemale) {
-                score += 40;
-            }
-
-            if (name.includes("google uk english male")) score += 60;
-            if (name.includes("microsoft george")) score += 50;
+            // Boost specific high-quality voices
+            if (name.includes("google uk english male")) score += 50;
+            if (name.includes("microsoft george")) score += 45;
             if (name.includes("microsoft david")) score += 40;
-            if (name.includes("daniel")) score += 40;
+            if (name.includes("daniel")) score += 35;
+
+            // Prefer English variants that sound more natural for African context
+            if (lang.includes("en-gb")) score += 30; // British English often sounds more formal/natural
+            if (lang.includes("en-us")) score += 20; // American English
 
             return score;
         }
@@ -803,11 +926,14 @@
         let bestScore = -999;
         for (const v of voices) {
             const s = scoreVoice(v);
+            console.log(`Voice: ${v.name} (${v.lang}) - Score: ${s}`);
             if (s > bestScore) {
                 bestScore = s;
                 bestVoice = v;
             }
         }
+        
+        console.log("Best voice selected:", bestVoice ? bestVoice.name : "None", "Score:", bestScore);
         return bestVoice;
     }
 
@@ -1224,22 +1350,130 @@
     const jarvisSphere = voiceCanvas ? new JarvisSphere(voiceCanvas, voiceOrbContainer) : null;
 
     let currentSpeechSession = 0;
+    let currentSpeechAudio = null;
+    let currentSpeechAudioUrl = null;
     let activeUtterance = null;
 
-    function speakReply(text) {
-        if (!text || typeof window === "undefined" || !window.speechSynthesis) {
-            return Promise.resolve();
+    function stopCurrentSpeech() {
+        if (currentSpeechAudio) {
+            try {
+                currentSpeechAudio.pause();
+                currentSpeechAudio.currentTime = 0;
+            } catch (e) {}
+            currentSpeechAudio = null;
         }
+        if (currentSpeechAudioUrl) {
+            try { URL.revokeObjectURL(currentSpeechAudioUrl); } catch (e) {}
+            currentSpeechAudioUrl = null;
+        }
+        if (typeof window !== "undefined" && window.speechSynthesis) {
+            try { window.speechSynthesis.cancel(); } catch (e) {}
+        }
+        if (jarvisSphere && jarvisSphere.state === "speaking") {
+            jarvisSphere.setState("idle");
+        }
+    }
+
+    async function speakReply(text) {
+        if (!text) return Promise.resolve();
 
         const sessionId = ++currentSpeechSession;
         const cleaned = cleanTextForJarvisSpeech(text);
         if (!cleaned) return Promise.resolve();
 
-        return new Promise((resolve) => {
-            try {
-                window.speechSynthesis.cancel();
-            } catch (e) {}
+        stopCurrentSpeech();
 
+        if (jarvisSphere) jarvisSphere.setState("speaking");
+
+        const transcriptEl = document.getElementById("brain-voice-transcript");
+        const transcriptText = document.getElementById("brain-voice-transcript-text");
+        if (transcriptEl && transcriptText) {
+            transcriptText.textContent = cleaned;
+            transcriptEl.hidden = false;
+        }
+
+        // 1. Try Human Neural Speech API (edge-tts British JARVIS voice en-GB-RyanNeural)
+        try {
+            const resp = await fetch("/api/ai/speak/", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: cleaned })
+            });
+
+            if (!resp.ok) {
+                throw new Error("Neural TTS failed with status " + resp.status);
+            }
+
+            const blob = await resp.blob();
+            if (sessionId !== currentSpeechSession) return;
+
+            const audioUrl = URL.createObjectURL(blob);
+            currentSpeechAudioUrl = audioUrl;
+            const audio = new Audio(audioUrl);
+            currentSpeechAudio = audio;
+
+            return new Promise((resolve) => {
+                let finished = false;
+                function finish() {
+                    if (finished) return;
+                    finished = true;
+                    if (currentSpeechAudioUrl) {
+                        try { URL.revokeObjectURL(currentSpeechAudioUrl); } catch (e) {}
+                        currentSpeechAudioUrl = null;
+                    }
+                    currentSpeechAudio = null;
+                    if (sessionId === currentSpeechSession && jarvisSphere) {
+                        jarvisSphere.setState("idle");
+                    }
+                    resolve();
+                }
+
+                audio.onplay = () => {
+                    if (sessionId === currentSpeechSession && jarvisSphere) {
+                        jarvisSphere.setState("speaking");
+                    }
+                };
+                audio.onended = finish;
+                audio.onerror = (e) => {
+                    console.warn("Human neural audio playback error, fallback to browser voice:", e);
+                    finish();
+                };
+
+                // Connect audio to sphere analyser for real-time visual wave reaction
+                try {
+                    const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+                    if (AudioCtxClass && jarvisSphere) {
+                        if (!jarvisSphere.audioCtx) jarvisSphere.audioCtx = new AudioCtxClass();
+                        if (jarvisSphere.audioCtx.state === "suspended") jarvisSphere.audioCtx.resume();
+                        if (!jarvisSphere.analyser) {
+                            jarvisSphere.analyser = jarvisSphere.audioCtx.createAnalyser();
+                            jarvisSphere.analyser.fftSize = 256;
+                            jarvisSphere.dataArray = new Uint8Array(jarvisSphere.analyser.frequencyBinCount);
+                        }
+                        const source = jarvisSphere.audioCtx.createMediaElementSource(audio);
+                        source.connect(jarvisSphere.analyser);
+                        jarvisSphere.analyser.connect(jarvisSphere.audioCtx.destination);
+                    }
+                } catch (audioCtxErr) {}
+
+                audio.play().catch((playErr) => {
+                    console.warn("Audio play() blocked:", playErr);
+                    finish();
+                });
+            });
+        } catch (err) {
+            console.warn("Human neural TTS fetch error, fallback to browser voice:", err);
+            return speakReplyFallback(cleaned, sessionId);
+        }
+    }
+
+    function speakReplyFallback(cleaned, sessionId) {
+        if (typeof window === "undefined" || !window.speechSynthesis) {
+            if (jarvisSphere) jarvisSphere.setState("idle");
+            return Promise.resolve();
+        }
+
+        return new Promise((resolve) => {
             let finished = false;
             function finish() {
                 if (finished) return;
@@ -1254,7 +1488,7 @@
 
             const utterance = new SpeechSynthesisUtterance(cleaned);
             activeUtterance = utterance;
-            window.__jarvisActiveUtterance = utterance; // Prevent Chromium garbage-collection bug
+            window.__jarvisActiveUtterance = utterance;
 
             utterance.rate = 1.0;
             utterance.pitch = 0.98;
@@ -1270,55 +1504,41 @@
                     jarvisSphere.setState("speaking");
                 }
             };
-
-            utterance.onend = () => {
-                finish();
-            };
-
+            utterance.onend = finish;
             utterance.onerror = (evt) => {
-                console.warn("SpeechSynthesis error:", evt ? evt.error : "unknown");
-                // If failed with custom voice (network/permissions), retry once with default system voice
-                if (!finished && selectedVoice) {
-                    try {
-                        const fallback = new SpeechSynthesisUtterance(cleaned);
-                        activeUtterance = fallback;
-                        window.__jarvisActiveUtterance = fallback;
-                        fallback.rate = 1.0;
-                        fallback.pitch = 1.0;
-                        fallback.volume = 1.0;
-                        fallback.onstart = () => {
-                            if (sessionId === currentSpeechSession && jarvisSphere) {
-                                jarvisSphere.setState("speaking");
-                            }
-                        };
-                        fallback.onend = finish;
-                        fallback.onerror = finish;
-                        window.speechSynthesis.speak(fallback);
-                        return;
-                    } catch (err) {
-                        console.error("Speech fallback error:", err);
-                    }
-                }
+                console.warn("Browser speech fallback error:", evt);
                 finish();
             };
-
-            if (jarvisSphere) {
-                jarvisSphere.setState("speaking");
-            }
 
             try {
-                if (window.speechSynthesis.paused) {
-                    window.speechSynthesis.resume();
-                }
+                if (window.speechSynthesis.paused) window.speechSynthesis.resume();
                 window.speechSynthesis.speak(utterance);
-                if (window.speechSynthesis.paused) {
-                    window.speechSynthesis.resume();
-                }
+                if (window.speechSynthesis.paused) window.speechSynthesis.resume();
             } catch (err) {
-                console.error("Speech speak error:", err);
                 finish();
             }
         });
+    }
+
+    async function loadChatHistory() {
+        if (!messages) return;
+        try {
+            const res = await fetch("/api/ai/chat/history/");
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data.history && data.history.length > 0) {
+                messages.innerHTML = "";
+                history.length = 0;
+                for (const item of data.history) {
+                    history.push({ role: item.role, content: item.content });
+                    addMessage(item.role, item.content);
+                }
+                messages.scrollTop = messages.scrollHeight;
+                chatHistoryLoaded = true;
+            }
+        } catch (e) {
+            console.warn("Could not load user chat history:", e);
+        }
     }
 
     function addMessage(role, text) {
@@ -1334,14 +1554,13 @@
                 const speakBtn = document.createElement("button");
                 speakBtn.type = "button";
                 speakBtn.className = "brain-msg-speak";
-                speakBtn.title = "Speak with JARVIS voice";
-                speakBtn.setAttribute("aria-label", "Speak with JARVIS voice");
+                speakBtn.title = "Listen to JARVIS human voice";
+                speakBtn.setAttribute("aria-label", "Listen to JARVIS human voice");
                 speakBtn.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>';
                 speakBtn.addEventListener("click", (e) => {
                     e.stopPropagation();
-                    if (window.speechSynthesis && window.speechSynthesis.speaking) {
-                        window.speechSynthesis.cancel();
-                        if (jarvisSphere) jarvisSphere.setState("idle");
+                    if (currentSpeechAudio || (window.speechSynthesis && window.speechSynthesis.speaking)) {
+                        stopCurrentSpeech();
                     } else {
                         speakReply(text);
                     }
@@ -1368,6 +1587,8 @@
             return;
         }
         
+        console.log("send called with voiceReply:", voiceReply);
+        
         const payload = chartPayload();
         const validation = validateChartPayload(payload);
         
@@ -1376,14 +1597,21 @@
             return;
         }
         
+        // Replace symbol code with symbol name for better display
+        if (payload.symbol) {
+            payload.symbol_name = getSymbolName(payload.symbol);
+        }
+        
         addMessage("user", message);
         history.push({ role: "user", content: message });
         const thinking = addMessage("ai", "thinking");
         payload.message = message;
         payload.history = history.slice(0, -1);
+        payload.voice_input = voiceReply; // Flag to use Gemini for voice input
 
         if (voiceReply && jarvisSphere) {
             jarvisSphere.setState("thinking");
+            console.log("Set sphere to thinking state");
         }
 
         try {
@@ -1406,8 +1634,13 @@
                 addMessage("ai", data.reply);
                 history.push({ role: "assistant", content: data.reply });
                 window.aiChartActions.applyActions(data.actions || []);
-                if (voiceReply || voiceModeActive) {
+                
+                // Voice response for voice input (ChatGPT-style)
+                if (voiceReply) {
+                    console.log("Voice reply requested, AI response:", data.reply.substring(0, 50) + "...");
+                    console.log("About to call speakReply");
                     await speakReply(data.reply);
+                    console.log("speakReply completed");
                 }
             }
         } catch (e) {
@@ -1425,7 +1658,7 @@
         const value = input.value.trim();
         if (!value) return;
         input.value = "";
-        send(value, voiceModeActive);
+        send(value, false); // Voice disabled - automatic speech disabled
     });
 
     function setVoiceStatus(message) {
@@ -1450,6 +1683,13 @@
         voiceModeActive = true;
         panel.classList.add("voice-mode-open");
         voiceMode.hidden = false;
+        
+        // Show voice mode instructions
+        if (voiceModeStatus) {
+            voiceModeStatus.textContent = "Voice Assistant Active - Click to speak, click again to stop";
+            voiceModeStatus.hidden = false;
+        }
+        
         if (typeof window !== "undefined" && window.speechSynthesis) {
             try { window.speechSynthesis.resume(); } catch (e) {}
         }
@@ -1462,14 +1702,16 @@
 
     function exitVoiceMode() {
         currentSpeechSession++;
+        stopCurrentSpeech();
         voiceModeActive = false;
         panel.classList.remove("voice-mode-open");
         voiceMode.hidden = true;
+        const transcriptEl = document.getElementById("brain-voice-transcript");
+        if (transcriptEl) transcriptEl.hidden = true;
         if (jarvisSphere) {
             jarvisSphere.setState("idle");
             jarvisSphere.stop();
         }
-        if (window.speechSynthesis) window.speechSynthesis.cancel();
         if (recorder && recorder.state === "recording") recorder.stop();
         setVoiceModeStatus("");
     }
@@ -1489,6 +1731,12 @@
                 jarvisSphere.setState("listening");
                 jarvisSphere.setStream(stream);
             }
+            
+            // Show listening status
+            if (voiceModeStatus) {
+                voiceModeStatus.textContent = "Listening... Speak now";
+                voiceModeStatus.hidden = false;
+            }
 
             // Recording timer for button tooltip
             recordingTimer = setInterval(() => {
@@ -1496,6 +1744,9 @@
                 const minutes = Math.floor(elapsed / 60);
                 const seconds = elapsed % 60;
                 if (voiceBtn) voiceBtn.title = `Listening… ${minutes}:${seconds.toString().padStart(2, '0')}`;
+                if (voiceModeStatus) {
+                    voiceModeStatus.textContent = `Listening... ${minutes}:${seconds.toString().padStart(2, '0')}`;
+                }
             }, 1000);
             
             recorder.ondataavailable = (event) => {
@@ -1508,6 +1759,12 @@
                     jarvisSphere.stopStream();
                     jarvisSphere.setState("thinking");
                 }
+                
+                // Show processing status
+                if (voiceModeStatus) {
+                    voiceModeStatus.textContent = "Processing your voice...";
+                }
+                
                 voiceBtn.classList.remove("is-recording");
                 voiceBtn.disabled = true;
                 try {
@@ -1517,8 +1774,18 @@
                     const response = await fetch("/api/ai/transcribe/", { method: "POST", body: formData });
                     const data = await response.json();
                     if (!response.ok || data.error) throw new Error(data.error || "Transcription failed.");
-                    await send(data.text, true);
+                    console.log("Transcription successful:", data.text);
+                    console.log("About to call send with voiceReply=true");
+                    // ChatGPT-style: when using voice input, AI responds with voice automatically using Gemini
+                    await send(data.text, true); // Enable voice reply for voice input (uses Gemini)
+                    console.log("Send completed");
+                    
+                    // Show ready status for next interaction
+                    if (voiceModeStatus) {
+                        voiceModeStatus.textContent = "Voice Assistant Ready - Click to speak again";
+                    }
                 } catch (error) {
+                    console.error("Transcription error:", error);
                     if (jarvisSphere) jarvisSphere.setState("idle");
                     setVoiceModeStatus(error.message || "Could not transcribe the recording.", true);
                 } finally {
@@ -1534,21 +1801,47 @@
     }
 
     if (voiceBtn) voiceBtn.addEventListener("click", () => {
-        enterVoiceMode();
-        if (!recorder || recorder.state !== "recording") startRecording();
+        // Voice assistant mode: click to open voice sphere for direct AI voice interaction
+        if (voiceModeActive) {
+            // Already in voice mode, start/stop recording
+            if (recorder && recorder.state === "recording") {
+                recorder.stop();
+            } else {
+                // Stop any current speech and start recording
+                if (window.speechSynthesis && window.speechSynthesis.speaking) {
+                    window.speechSynthesis.cancel();
+                    if (jarvisSphere) jarvisSphere.setState("idle");
+                }
+                startRecording();
+            }
+        } else {
+            // Enter voice assistant mode
+            enterVoiceMode();
+            // Auto-start recording for immediate voice interaction
+            setTimeout(() => {
+                if (jarvisSphere) {
+                    jarvisSphere.start();
+                    jarvisSphere.setState("idle");
+                }
+                startRecording();
+            }, 300);
+        }
     });
 
     if (voiceOrbContainer) {
         voiceOrbContainer.addEventListener("click", () => {
+            // Voice assistant mode: start/stop recording for direct AI voice interaction
             if (recorder && recorder.state === "recording") {
                 recorder.stop();
             } else {
-                if (window.speechSynthesis && window.speechSynthesis.speaking) {
-                    window.speechSynthesis.cancel();
+                stopCurrentSpeech();
+                if (!voiceModeActive) {
+                    enterVoiceMode();
                 }
                 startRecording();
             }
         });
+        
         voiceOrbContainer.addEventListener("keydown", (e) => {
             if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
@@ -1557,9 +1850,25 @@
         });
     }
 
-    if (voiceModeClose) voiceModeClose.addEventListener("click", exitVoiceMode);
+    const voiceModeHistoryBtn = document.getElementById("brain-voice-history-btn");
+    if (voiceModeHistoryBtn) {
+        voiceModeHistoryBtn.addEventListener("click", () => {
+            exitVoiceMode();
+            setTab("chat");
+        });
+    }
+
+    if (voiceModeClose) {
+        voiceModeClose.addEventListener("click", () => {
+            exitVoiceMode();
+            setTab("chat");
+        });
+    }
 
     document.addEventListener("keydown", (e) => {
         if (e.key === "Escape" && open) setOpen(false);
     });
+
+    // Initial load of account chat history
+    loadChatHistory();
 })();

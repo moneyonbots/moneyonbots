@@ -16,19 +16,22 @@ import re
 import pandas as pd
 import requests
 from django.conf import settings
+from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_GET
 
 logger = logging.getLogger(__name__)
 
 from analysis.models import MarketSignal
 from analysis.services.indicators import add_technical_indicators
 from markets.catalog import display_name, get_market_type
+from .models import ChatMessage
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_TRANSCRIPTION_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent"
 
 SYSTEM_PROMPT = (
     "You are J.A.R.V.I.S., the intelligent, sophisticated AI trading & chart assistant "
@@ -50,6 +53,31 @@ SYSTEM_PROMPT = (
     "```\n"
     "Allowed action types: hline, indicator, clear. "
     "Indicator names: RSI, MACD, MA, BB, ATR, Stochastic."
+)
+
+VOICE_SYSTEM_PROMPT = (
+    "You are J.A.R.V.I.S., the intelligent, sophisticated AI trading & chart assistant "
+    "inside the Deriv analysis terminal. "
+    "You communicate with clarity, precision, and the polite, articulate demeanor of J.A.R.V.I.S. "
+    "You never place orders. You receive live chart context: last price, "
+    "recent OHLC, RSI, ATR, EMAs, and any signal-engine snapshot. "
+    "Answer in short, crisp, skimmable points suitable for speech synthesis. "
+    "This is technical analysis, not financial advice. Synthetic indices "
+    "(Boom/Crash/Volatility/Jump) are randomised instruments, not real markets.\n\n"
+    "You can also assist with general market news analysis, economic events, "
+    "and trading education. When no specific chart is provided, focus on "
+    "general market knowledge, news analysis, and educational content.\n\n"
+    "If the user asks you to mark the chart or add studies, append a JSON "
+    "block at the end of your reply in this exact form:\n"
+    "```actions\n"
+    '{"actions":[{"type":"hline","price":1.085,"text":"Resistance","color":"#ef5350"},'
+    '{"type":"indicator","name":"RSI"}]}\n'
+    "```\n"
+    "Allowed action types: hline, indicator, clear. "
+    "Indicator names: RSI, MACD, MA, BB, ATR, Stochastic.\n\n"
+    "For voice responses: Keep answers concise and conversational. Use natural language "
+    "that flows well when spoken. Avoid complex technical jargon when simpler terms work. "
+    "Focus on the most important insights that can be communicated clearly in speech."
 )
 
 ANALYSIS_PROMPT = (
@@ -94,6 +122,7 @@ def _api_keys():
     """
     groq_keys = []
     anthropic_keys = []
+    gemini_key = _clean_secret(getattr(settings, "GEMINI_API_KEY", ""))
     seen = set()
     for raw in (
         getattr(settings, "ANTHROPIC_API_KEY", ""),
@@ -109,7 +138,7 @@ def _api_keys():
             anthropic_keys.append(key)
     groq_key = groq_keys[0] if groq_keys else ""
     anthropic_key = anthropic_keys[0] if anthropic_keys else ""
-    return groq_key, anthropic_key
+    return groq_key, anthropic_key, gemini_key
 
 
 def _auth_failed(message: str) -> bool:
@@ -174,6 +203,60 @@ def _anthropic_chat(anthropic_key: str, system_prompt: str, messages: list, max_
         block.get("text", "") for block in data.get("content", []) if block.get("type") == "text"
     ) or "…"
     return reply, None, 200
+
+
+def _gemini_chat(gemini_key: str, system_prompt: str, messages: list, max_tokens: int):
+    """Gemini API chat for voice responses with Kenyan accent."""
+    # Convert messages to Gemini format
+    gemini_contents = []
+    
+    # Convert chat messages to Gemini format
+    for msg in messages:
+        role = "user" if msg.get("role") == "user" else "model"
+        gemini_contents.append({
+            "role": role,
+            "parts": [{"text": msg.get("content", "")}]
+        })
+    
+    try:
+        resp = requests.post(
+            f"{GEMINI_API_URL}?key={gemini_key}",
+            headers={"content-type": "application/json"},
+            json={
+                "systemInstruction": {
+                    "parts": [{"text": system_prompt}]
+                },
+                "contents": gemini_contents,
+                "generationConfig": {
+                    "maxOutputTokens": max_tokens,
+                    "temperature": 0.7,
+                }
+            },
+            timeout=40,
+        )
+        
+        data = resp.json()
+        
+        if resp.status_code != 200:
+            err = data.get("error", {}).get("message", "Unknown error from Gemini API.")
+            logger.error("Gemini API error: %s", err)
+            return None, err, 401 if resp.status_code in (401, 403) else 502
+        
+        # Extract response from Gemini format
+        reply = ""
+        if "candidates" in data and len(data["candidates"]) > 0:
+            candidate = data["candidates"][0]
+            if "content" in candidate and "parts" in candidate["content"]:
+                for part in candidate["content"]["parts"]:
+                    if "text" in part:
+                        reply += part["text"]
+        
+        logger.info("Gemini response received, length: %d", len(reply))
+        return reply or "…", None, 200
+        
+    except requests.RequestException as exc:
+        logger.error("Gemini API request failed: %s", exc)
+        return None, f"Could not reach Gemini API: {exc}", 502
 
 
 def _finite(value, digits=None):
@@ -246,29 +329,37 @@ def _technical_snapshot(candles: list, live_price=None) -> dict:
     }
 
 
-def _market_context(symbol: str, snapshot: dict | None = None, live_price=None) -> str:
+def _market_context(symbol: str, snapshot: dict | None = None, live_price=None, symbol_name: str = None) -> str:
     if not symbol:
         return "No symbol is currently selected on the chart."
-    name = display_name(symbol)
+    
+    # Use provided symbol name or get it from display_name
+    name = symbol_name if symbol_name else display_name(symbol)
     market_type = get_market_type(symbol)
-    parts = [f"Currently viewing {name} ({symbol}), market type {market_type}."]
+    
+    # Build comprehensive market context
+    parts = [f"Analyzing {name} ({symbol})"]
+    parts.append(f"Market Type: {market_type}")
+    
     price = _finite(live_price) or (snapshot or {}).get("price")
     if price is not None:
-        parts.append(f"Live price: {price}.")
+        parts.append(f"Current Price: {price}")
+    
     if snapshot:
         bits = []
         for key in ("rsi", "atr", "ema8", "ema21", "macd", "support", "resistance", "bars"):
             if snapshot.get(key) is not None:
-                bits.append(f"{key}: {snapshot[key]}")
+                bits.append(f"{key.upper()}: {snapshot[key]}")
         if bits:
-            parts.append("Chart snapshot — " + ", ".join(bits) + ".")
+            parts.append("Technical Indicators: " + ", ".join(bits))
+    
     signal = _signal_row(symbol)
     if signal:
         parts.append(
-            "Signal engine — direction: {direction}, strength: {signal_strength}, "
-            "setup quality: {setup_quality}, opportunity: {opportunity_score}, "
-            "risk: {risk_level}, stop: {stop_loss}, target: {take_profit}, "
-            "R:R: {risk_reward}, confidence: {model_confidence}, pattern: {pattern}.".format(**{
+            "Trading Signal — Direction: {direction}, Strength: {signal_strength}, "
+            "Setup Quality: {setup_quality}, Opportunity Score: {opportunity_score}, "
+            "Risk Level: {risk_level}, Stop Loss: {stop_loss}, Take Profit: {take_profit}, "
+            "Risk-Reward Ratio: {risk_reward}, Model Confidence: {model_confidence}%, Pattern: {pattern}".format(**{
                 "direction": signal.get("direction"),
                 "signal_strength": signal.get("signal_strength"),
                 "setup_quality": signal.get("setup_quality"),
@@ -282,12 +373,33 @@ def _market_context(symbol: str, snapshot: dict | None = None, live_price=None) 
             })
         )
     else:
-        parts.append("No stored analysis-engine signal for this market yet.")
-    return " ".join(parts)
+        parts.append("No active trading signal available for this market")
+    
+    return ". ".join(parts) + "."
 
 
-def _llm(system_prompt: str, messages: list, max_tokens: int = 800) -> tuple[str | None, str | None, int]:
-    groq_key, _ = _api_keys()
+def _llm(system_prompt: str, messages: list, max_tokens: int = 800, use_gemini: bool = False) -> tuple[str | None, str | None, int]:
+    groq_key, _, gemini_key = _api_keys()
+    
+    logger.info("LLM request - use_gemini: %s, gemini_key_exists: %s, groq_key_exists: %s", 
+                use_gemini, bool(gemini_key), bool(groq_key))
+    
+    # Use Gemini for voice responses
+    if use_gemini and gemini_key:
+        logger.info("Using Gemini API for voice response")
+        try:
+            reply, error, status = _gemini_chat(gemini_key, system_prompt, messages, max_tokens)
+            if not error:
+                logger.info("Voice AI request succeeded via Gemini")
+                return reply, None, 200
+            logger.error("Gemini API error: %s", error)
+            # Fall back to Groq if Gemini fails
+            logger.info("Falling back to Groq due to Gemini error")
+        except requests.RequestException as exc:
+            logger.error("Gemini API request failed: %s", exc)
+            logger.info("Falling back to Groq due to Gemini exception")
+    
+    # Fall back to Groq for regular chat or if Gemini fails
     if not groq_key:
         logger.error("GROQ_API_KEY is not set in .env")
         return None, "GROQ_API_KEY is not set in .env. Please add your Groq API key from https://console.groq.com/keys", 503
@@ -332,6 +444,41 @@ def _extract_json(text: str):
 
 
 @csrf_exempt
+@require_GET
+def chat_history(request):
+    """Get chat history for the authenticated user."""
+    try:
+        user = request.user if request.user.is_authenticated else None
+        if not user:
+            return JsonResponse({'history': [], 'error': 'User not authenticated'})
+        
+        symbol = request.GET.get('symbol', '')
+        
+        # Get recent messages for this user, optionally filtered by symbol
+        queryset = ChatMessage.objects.filter(user=user)
+        if symbol:
+            queryset = queryset.filter(symbol=symbol)
+        
+        # Get last 50 messages
+        messages = queryset.order_by('-created_at')[:50]
+        
+        # Convert to chat format (oldest first)
+        history = []
+        for msg in reversed(messages):
+            history.append({
+                'role': msg.role,
+                'content': msg.content,
+                'symbol': msg.symbol,
+                'created_at': msg.created_at.isoformat()
+            })
+        
+        return JsonResponse({'history': history})
+    except Exception as e:
+        logger.error("Error fetching chat history: %s", e)
+        return JsonResponse({'error': 'Failed to fetch chat history'}, status=500)
+
+
+@csrf_exempt
 @require_POST
 def chat(request):
     try:
@@ -344,12 +491,29 @@ def chat(request):
         return JsonResponse({"error": "Empty message."}, status=400)
 
     symbol = payload.get("symbol") or ""
+    symbol_name = payload.get("symbol_name") or ""
     history = payload.get("history") or []
     snapshot = _technical_snapshot(payload.get("candles") or [], payload.get("price"))
+    voice_input = payload.get("voice_input", False)  # Detect if this is from voice input
+    
+    # Save user message to database if authenticated
+    user = request.user if request.user.is_authenticated else None
+    if user:
+        try:
+            ChatMessage.objects.create(
+                user=user,
+                role='user',
+                content=message,
+                symbol=symbol if symbol else None
+            )
+        except Exception as e:
+            logger.warning("Failed to save user message: %s", e)
     
     # Build context - if no symbol is provided, use a general context for news analysis
     if symbol:
-        context = _market_context(symbol, snapshot, payload.get("price"))
+        context = _market_context(symbol, snapshot, payload.get("price"), symbol_name)
+        # Use symbol name for better display if available
+        display_symbol = symbol_name if symbol_name else symbol
         user_message = f"[Chart context: {context}]\n\n{message}"
     else:
         # For news analysis without a specific chart, provide general context
@@ -364,7 +528,11 @@ def chat(request):
             messages.append({"role": role, "content": content})
     messages.append({"role": "user", "content": user_message})
 
-    reply, error, status = _llm(SYSTEM_PROMPT, messages, max_tokens=700)
+    # Use voice-optimized prompt for voice input, regular prompt for text chat
+    system_prompt = VOICE_SYSTEM_PROMPT if voice_input else SYSTEM_PROMPT
+    
+    # Do not use Gemini for voice; use high-performance Groq/Anthropic
+    reply, error, status = _llm(system_prompt, messages, max_tokens=700, use_gemini=False)
     if error:
         return JsonResponse({"error": error}, status=status)
     actions = []
@@ -372,7 +540,65 @@ def chat(request):
     if parsed and isinstance(parsed.get("actions"), list):
         actions = parsed["actions"]
         reply = re.sub(r"```actions[\s\S]*?```", "", reply or "").strip() or reply
+    
+    # Save assistant reply to database if authenticated
+    if user and reply:
+        try:
+            ChatMessage.objects.create(
+                user=user,
+                role='assistant',
+                content=reply,
+                symbol=symbol if symbol else None
+            )
+        except Exception as e:
+            logger.warning("Failed to save assistant message: %s", e)
+    
     return JsonResponse({"reply": reply, "actions": actions, "snapshot": snapshot})
+
+
+@csrf_exempt
+@require_POST
+def speak(request):
+    """Generate human neural speech (JARVIS British voice) using edge-tts."""
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Malformed request body."}, status=400)
+
+    text = (payload.get("text") or "").strip()
+    if not text:
+        return JsonResponse({"error": "Empty text."}, status=400)
+
+    # Clean text to remove markdown, code blocks, and symbols
+    cleaned = re.sub(r"```[\s\S]*?```", "", text)
+    cleaned = re.sub(r"`([^`]+)`", r"\1", cleaned)
+    cleaned = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", cleaned)
+    cleaned = re.sub(r"[*_~#>]", "", cleaned).strip()
+    if not cleaned:
+        return JsonResponse({"error": "No speakable text."}, status=400)
+
+    try:
+        import edge_tts
+        from django.http import HttpResponse
+
+        # Authentic British human JARVIS voice
+        voice = "en-GB-RyanNeural"
+        communicate = edge_tts.Communicate(cleaned, voice)
+
+        async def _generate_audio():
+            audio_data = bytearray()
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    audio_data.extend(chunk["data"])
+            return bytes(audio_data)
+
+        audio_bytes = asyncio.run(_generate_audio())
+        response = HttpResponse(audio_bytes, content_type="audio/mpeg")
+        response["Content-Length"] = len(audio_bytes)
+        return response
+    except Exception as exc:
+        logger.error("Human neural TTS generation failed: %s", exc)
+        return JsonResponse({"error": f"Speech generation failed: {exc}"}, status=500)
 
 
 @csrf_exempt
@@ -385,7 +611,7 @@ def transcribe(request):
     if audio.size > 10 * 1024 * 1024:
         return JsonResponse({"error": "The recording is too large. Keep it under 10 MB."}, status=413)
 
-    groq_key, _ = _api_keys()
+    groq_key, _, _ = _api_keys()
     if not groq_key:
         return JsonResponse({"error": "Groq speech recognition is not configured."}, status=503)
 
@@ -425,13 +651,14 @@ def chart_analysis(request):
     if not symbol:
         return JsonResponse({"error": "Missing symbol."}, status=400)
 
+    symbol_name = payload.get("symbol_name") or ""
     snapshot = _technical_snapshot(payload.get("candles") or [], payload.get("price"))
     signal = _signal_row(symbol)
-    context = _market_context(symbol, snapshot, payload.get("price"))
+    context = _market_context(symbol, snapshot, payload.get("price"), symbol_name)
     timeframe = payload.get("timeframe") or "60"
 
     analysis = None
-    groq_key, anthropic_key = _api_keys()
+    groq_key, anthropic_key, gemini_key = _api_keys()
     if groq_key or anthropic_key:
         user_prompt = (
             f"Timeframe: {timeframe} minutes.\n{context}\n"

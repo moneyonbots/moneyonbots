@@ -252,6 +252,8 @@ ANTHROPIC_MODEL = _env_secret("ANTHROPIC_MODEL", "claude-sonnet-4-5")
 GROQ_API_KEY = _env_secret("GROQ_API_KEY")
 GROQ_MODEL = _env_secret("GROQ_MODEL", "llama-3.3-70b-versatile")
 
+GEMINI_API_KEY = _env_secret("GEMINI_API_KEY")
+
 # ---------------------------------------------------------------------------
 # MT5 Live Trading Configuration - Removed for Vercel deployment (Windows-only)
 # ---------------------------------------------------------------------------

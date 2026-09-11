@@ -30,7 +30,16 @@
             <span></span>
         </div>
         <div class="brain-voice-mode-status" id="brain-voice-mode-status" role="status" aria-live="polite" hidden></div>
-        <button type="button" class="brain-voice-mode-close" id="brain-voice-mode-close">Back to chat</button>
+        <div class="brain-voice-transcript" id="brain-voice-transcript" hidden>
+            <div class="brain-voice-transcript-text" id="brain-voice-transcript-text"></div>
+        </div>
+        <div class="brain-voice-actions">
+            <button type="button" class="brain-voice-history-btn" id="brain-voice-history-btn" title="View conversation history">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                <span>Chat History</span>
+            </button>
+            <button type="button" class="brain-voice-mode-close" id="brain-voice-mode-close">Back to chat</button>
+        </div>
     </div>
 
     <div class="brain-tab-panel" id="brain-panel-insight">
@@ -88,14 +97,13 @@
             </div>
 
             <button type="button" class="ask-ai-btn" id="ask-ai-btn">Ask AI about this chart →</button>
-            <p class="ai-disclaimer">Technical analysis only — not financial advice. Synthetic indices are randomised instruments, not real markets.</p>
         </div>
     </div>
 
     <div class="brain-tab-panel" id="brain-panel-analysis" hidden>
         <div class="ai-analysis-panel">
             <button type="button" class="ask-ai-btn" id="run-ai-analysis">Run AI analysis</button>
-            <div id="ai-analysis-status" class="ai-analysis-status">Uses the open chart’s live price and candles.</div>
+            <div id="ai-analysis-status" class="ai-analysis-status"></div>
             <div class="ai-analysis-card" id="ai-analysis-card" hidden>
                 <div class="ai-insight-headline">
                     <span class="dir-badge neutral" id="ai-analysis-bias">—</span>
@@ -135,3 +143,4 @@
     <img src="{% static 'img/brain-icon.png' %}" alt="" class="brain-fab-icon">
 </button>
 {% endif %}
+
