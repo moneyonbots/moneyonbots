@@ -1236,10 +1236,8 @@
         if (!text || !window.speechSynthesis || !window.SpeechSynthesisUtterance) {
             return Promise.resolve();
         }
-        
-        window.speechSynthesis.cancel();
+
         const sessionId = ++currentSpeechSession;
-        
         const cleaned = cleanTextForJarvisSpeech(text);
         if (!cleaned) return Promise.resolve();
 
@@ -1247,71 +1245,104 @@
         const chunks = rawChunks.map(c => c.trim()).filter(Boolean);
         if (!chunks.length) return Promise.resolve();
 
-        const jarvisVoice = getJarvisVoice();
         if (jarvisSphere) jarvisSphere.setState("speaking");
 
         return new Promise((resolve) => {
+            // Cancel previous speech safely
+            try {
+                window.speechSynthesis.cancel();
+            } catch (e) {}
+
             let chunkIndex = 0;
             let keepAliveTimer = null;
+            let finished = false;
 
             function finish() {
+                if (finished) return;
+                finished = true;
                 if (keepAliveTimer) clearInterval(keepAliveTimer);
                 if (jarvisSphere && jarvisSphere.state === "speaking") {
-                    jarvisSphere.setState(voiceModeActive ? "listening" : "idle");
+                    jarvisSphere.setState("idle");
                 }
                 resolve();
             }
 
-            // Chrome keep-alive bugfix
             keepAliveTimer = setInterval(() => {
                 if (sessionId !== currentSpeechSession) {
                     finish();
                     return;
                 }
-                if (window.speechSynthesis.speaking) {
+                if (window.speechSynthesis && window.speechSynthesis.speaking) {
                     window.speechSynthesis.pause();
                     window.speechSynthesis.resume();
                 }
-            }, 8000);
+            }, 5000);
 
-            function speakNext() {
+            function speakChunk(chunkText, isRetry = false) {
                 if (sessionId !== currentSpeechSession) {
                     finish();
                     return;
                 }
-                if (chunkIndex >= chunks.length) {
-                    finish();
-                    return;
-                }
 
-                const chunkText = chunks[chunkIndex++];
                 const utterance = new SpeechSynthesisUtterance(chunkText);
-                
-                // Refined JARVIS acoustic parameters
                 utterance.rate = 1.0;
                 utterance.pitch = 0.95;
                 utterance.volume = 1.0;
 
-                if (jarvisVoice) {
+                const jarvisVoice = getJarvisVoice();
+                if (!isRetry && jarvisVoice) {
                     utterance.voice = jarvisVoice;
                 }
 
+                utterance.onstart = () => {
+                    if (jarvisSphere) jarvisSphere.setState("speaking");
+                };
+
                 utterance.onend = () => {
                     if (sessionId === currentSpeechSession) {
-                        speakNext();
+                        if (chunkIndex < chunks.length) {
+                            speakChunk(chunks[chunkIndex++]);
+                        } else {
+                            finish();
+                        }
                     } else {
                         finish();
                     }
                 };
 
-                utterance.onerror = () => {
-                    finish();
+                utterance.onerror = (evt) => {
+                    console.warn("JARVIS speech utterance error", evt);
+                    // If failed with custom voice, retry once with default voice
+                    if (!isRetry && jarvisVoice) {
+                        speakChunk(chunkText, true);
+                    } else {
+                        if (chunkIndex < chunks.length) {
+                            speakChunk(chunks[chunkIndex++]);
+                        } else {
+                            finish();
+                        }
+                    }
                 };
 
-                window.speechSynthesis.speak(utterance);
+                try {
+                    if (window.speechSynthesis.paused) {
+                        window.speechSynthesis.resume();
+                    }
+                    window.speechSynthesis.speak(utterance);
+                    if (window.speechSynthesis.paused) {
+                        window.speechSynthesis.resume();
+                    }
+                } catch (e) {
+                    console.error("SpeechSynthesis speak error:", e);
+                    finish();
+                }
             }
 
-            speakNext();
+            // Small delay so cancel state settles cleanly in Chromium
+            setTimeout(() => {
+                if (sessionId !== currentSpeechSession) return;
+                speakChunk(chunks[chunkIndex++]);
+            }, 60);
         });
     }
 
@@ -1402,11 +1433,6 @@
                 window.aiChartActions.applyActions(data.actions || []);
                 if (voiceReply) {
                     await speakReply(data.reply);
-                    if (voiceModeActive) {
-                        startRecording();
-                    } else {
-                        exitVoiceMode();
-                    }
                 }
             }
         } catch (e) {
@@ -1503,7 +1529,6 @@
                     jarvisSphere.setState("thinking");
                 }
                 voiceBtn.classList.remove("is-recording");
-                if (voiceModeMic) voiceModeMic.classList.remove("is-recording");
                 voiceBtn.disabled = true;
                 try {
                     const blob = new Blob(recordingChunks, { type: recorder.mimeType || "audio/webm" });
@@ -1522,7 +1547,6 @@
             };
             recorder.start();
             voiceBtn.classList.add("is-recording");
-            if (voiceModeMic) voiceModeMic.classList.add("is-recording");
         } catch (error) {
             if (jarvisSphere) jarvisSphere.setState("idle");
             setVoiceModeStatus("Microphone access was denied or unavailable.", true);
@@ -1533,10 +1557,26 @@
         enterVoiceMode();
         if (!recorder || recorder.state !== "recording") startRecording();
     });
-    if (voiceModeMic) voiceModeMic.addEventListener("click", () => {
-        if (recorder && recorder.state === "recording") recorder.stop();
-        else startRecording();
-    });
+
+    if (voiceOrbContainer) {
+        voiceOrbContainer.addEventListener("click", () => {
+            if (recorder && recorder.state === "recording") {
+                recorder.stop();
+            } else {
+                if (window.speechSynthesis && window.speechSynthesis.speaking) {
+                    window.speechSynthesis.cancel();
+                }
+                startRecording();
+            }
+        });
+        voiceOrbContainer.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                voiceOrbContainer.click();
+            }
+        });
+    }
+
     if (voiceModeClose) voiceModeClose.addEventListener("click", exitVoiceMode);
 
     document.addEventListener("keydown", (e) => {
