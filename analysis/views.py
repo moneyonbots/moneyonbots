@@ -38,13 +38,22 @@ def active_signals(request):
     timeframe = request.GET.get("timeframe")
     if timeframe:
         queryset = queryset.filter(timeframe=timeframe)
-    for signal in queryset.order_by("-created_at"):
-        if signal.symbol in seen:
-            continue
-        seen.add(signal.symbol)
-        signals.append(signal.as_dict())
-        if len(signals) >= 100:
-            break
+    
+    # When timeframe is specified, allow multiple signals per symbol for different timeframes
+    # When no timeframe specified, show one signal per symbol (prefer 1H over 1D)
+    if timeframe:
+        # When timeframe is specified, return all signals for that timeframe
+        signals = [signal.as_dict() for signal in queryset.order_by("-created_at")[:100]]
+    else:
+        # When no timeframe, ensure one signal per symbol (prefer 1H over 1D)
+        for signal in queryset.order_by("-created_at"):
+            if signal.symbol in seen:
+                continue
+            seen.add(signal.symbol)
+            signals.append(signal.as_dict())
+            if len(signals) >= 100:
+                break
+    
     return JsonResponse({"signals": signals})
 
 

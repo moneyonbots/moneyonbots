@@ -37,7 +37,8 @@ logger = logging.getLogger(__name__)
 @database_sync_to_async
 def _save_signal(signal: dict, model_confidence: float) -> dict:
     now = timezone.now()
-    MarketSignal.objects.filter(symbol=signal["symbol"], status="active").update(
+    timeframe = signal.get("timeframe", "1H")
+    MarketSignal.objects.filter(symbol=signal["symbol"], status="active", timeframe=timeframe).update(
         status="completed",
         completed_at=now,
     )
@@ -87,9 +88,9 @@ def _update_signal_strength(symbol: str, new_strength: float, new_rsi: float, ne
 
 
 @database_sync_to_async
-def _get_existing_signal(symbol: str) -> dict:
-    """Get existing active signal for a symbol."""
-    signal = MarketSignal.objects.filter(symbol=symbol, status="active").first()
+def _get_existing_signal(symbol: str, timeframe: str = "1H") -> dict:
+    """Get existing active signal for a symbol and timeframe."""
+    signal = MarketSignal.objects.filter(symbol=symbol, status="active", timeframe=timeframe).first()
     if signal:
         return signal.as_dict()
     return None
@@ -114,7 +115,8 @@ async def analyze_symbol(symbol: str):
     df = feed.get_dataframe(symbol)
     
     # Only proceed if we have real data
-    if df is None or len(df) < 60:
+    # For daily timeframe, we need fewer candles but still need sufficient data
+    if df is None or len(df) < 30:
         logger.debug(f"No data available for {symbol}, skipping analysis")
         return
     
@@ -137,7 +139,9 @@ async def analyze_symbol(symbol: str):
     await _check_signal_tp_sl(symbol, current_price)
 
     df_ind = add_technical_indicators(df)
-    if len(df_ind) < 30:
+    # For daily timeframe, we can work with fewer candles
+    min_candles = 20  
+    if len(df_ind) < min_candles:
         return
 
     model = registry.get_or_train(symbol, df)
@@ -153,18 +157,19 @@ async def analyze_symbol(symbol: str):
         overall_sentiment = 0.0
         news = []
 
-    # Intraday day-trading signals only.
-    timeframes = ["1H"]
+    # Support multiple timeframes for different trading styles
+    timeframes = ["1H", "1D"]  # 1H for day trading, 1D for swing trading
     for timeframe in timeframes:
         try:
+            logger.debug(f"Generating signal for {symbol} with timeframe {timeframe}")
             signal = generate_signal(symbol, df_ind, proba_up, timeframe=timeframe)
             
             # Add news sentiment to signal
             signal['news_sentiment'] = overall_sentiment
             signal['news_count'] = len(news)
             
-            # Check if there's an existing active signal for this symbol
-            existing_signal = await _get_existing_signal(symbol)
+            # Check if there's an existing active signal for this symbol and timeframe
+            existing_signal = await _get_existing_signal(symbol, timeframe)
             
             if signal["direction"] in ("Buy", "Sell"):
                 # Calculate direction-aware confidence
