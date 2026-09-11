@@ -102,12 +102,7 @@
     }
 
     function validateChartPayload(payload) {
-        if (!payload.symbol) {
-            return { valid: false, error: "No symbol selected" };
-        }
-        if (!payload.candles || payload.candles.length === 0) {
-            return { valid: false, error: "No candle data available" };
-        }
+        // The assistant backend handles general queries and news analysis even when no chart or candles are loaded
         return { valid: true };
     }
 
@@ -763,9 +758,7 @@
     }
 
     function getJarvisVoice() {
-        const voices = (availableVoices && availableVoices.length) 
-            ? availableVoices 
-            : (window.speechSynthesis ? window.speechSynthesis.getVoices() : []);
+        const voices = (window.speechSynthesis ? window.speechSynthesis.getVoices() : []) || availableVoices;
         if (!voices || voices.length === 0) return null;
 
         function scoreVoice(v) {
@@ -777,43 +770,36 @@
             const isEnglish = lang.startsWith("en");
             if (!isEnglish) return -200;
 
-            const isNeural = name.includes("natural") || name.includes("neural") || name.includes("online") || name.includes("premium") || name.includes("enhanced");
-            const ukMaleNames = ["ryan", "george", "daniel", "oliver", "arthur", "brian", "guy", "charles", "alfred", "edward", "james", "william", "uk english male"];
-            const usMaleNames = ["guy", "christopher", "davis", "eric", "roger", "andrew", "brian", "david", "mark", "alex", "fred", "us english male"];
+            // Prioritize reliable offline/local voices. Penalize online cloud voices that fail with network errors
+            if (v.localService) score += 90;
+            if (name.includes("online") || !v.localService) score -= 110;
+
+            const ukMaleNames = ["george", "daniel", "oliver", "arthur", "brian", "guy", "charles", "alfred", "edward", "james", "william", "uk english male"];
+            const usMaleNames = ["david", "mark", "guy", "christopher", "davis", "eric", "roger", "andrew", "brian", "alex", "fred", "us english male"];
             const femaleNames = ["zira", "susan", "hazel", "jenny", "aria", "sonia", "libby", "mia", "victoria", "karen", "samantha", "stephanie", "catherine", "heera", "female"];
             const isFemale = femaleNames.some(f => name.includes(f));
 
             if (isFemale) score -= 60;
 
-            if (isUK && ukMaleNames.some(n => name.includes(n)) && isNeural) {
-                score += 200;
-            } else if (isUK && ukMaleNames.some(n => name.includes(n))) {
-                score += 150;
-            } else if (isUK && isNeural && !isFemale) {
-                score += 120;
+            if (isUK && ukMaleNames.some(n => name.includes(n))) {
+                score += 160;
             } else if (isUK && !isFemale) {
-                score += 90;
-            } else if (usMaleNames.some(n => name.includes(n)) && isNeural) {
-                score += 80;
+                score += 100;
             } else if (usMaleNames.some(n => name.includes(n))) {
-                score += 60;
-            } else if (isNeural && !isFemale) {
-                score += 50;
-            } else if (isUK) {
-                score += 40;
+                score += 70;
             } else if (!isFemale) {
-                score += 20;
+                score += 40;
             }
 
-            if (name.includes("google uk english male")) score += 40;
-            if (name.includes("microsoft ryan")) score += 40;
-            if (name.includes("microsoft george")) score += 35;
-            if (name.includes("daniel")) score += 30;
+            if (name.includes("google uk english male")) score += 60;
+            if (name.includes("microsoft george")) score += 50;
+            if (name.includes("microsoft david")) score += 40;
+            if (name.includes("daniel")) score += 40;
 
             return score;
         }
 
-        let bestVoice = voices[0];
+        let bestVoice = null;
         let bestScore = -999;
         for (const v of voices) {
             const s = scoreVoice(v);
@@ -1238,9 +1224,10 @@
     const jarvisSphere = voiceCanvas ? new JarvisSphere(voiceCanvas, voiceOrbContainer) : null;
 
     let currentSpeechSession = 0;
+    let activeUtterance = null;
 
     function speakReply(text) {
-        if (!text || !window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+        if (!text || typeof window === "undefined" || !window.speechSynthesis) {
             return Promise.resolve();
         }
 
@@ -1248,108 +1235,89 @@
         const cleaned = cleanTextForJarvisSpeech(text);
         if (!cleaned) return Promise.resolve();
 
-        const rawChunks = cleaned.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [cleaned];
-        const chunks = rawChunks.map(c => c.trim()).filter(Boolean);
-        if (!chunks.length) return Promise.resolve();
-
-        if (jarvisSphere) jarvisSphere.setState("speaking");
-
         return new Promise((resolve) => {
-            // Cancel previous speech safely
             try {
                 window.speechSynthesis.cancel();
             } catch (e) {}
 
-            let chunkIndex = 0;
-            let keepAliveTimer = null;
             let finished = false;
-
             function finish() {
                 if (finished) return;
                 finished = true;
-                if (keepAliveTimer) clearInterval(keepAliveTimer);
-                if (jarvisSphere && jarvisSphere.state === "speaking") {
+                activeUtterance = null;
+                window.__jarvisActiveUtterance = null;
+                if (sessionId === currentSpeechSession && jarvisSphere) {
                     jarvisSphere.setState("idle");
                 }
                 resolve();
             }
 
-            keepAliveTimer = setInterval(() => {
-                if (sessionId !== currentSpeechSession) {
-                    finish();
-                    return;
-                }
-                if (window.speechSynthesis && window.speechSynthesis.speaking) {
-                    window.speechSynthesis.pause();
-                    window.speechSynthesis.resume();
-                }
-            }, 5000);
+            const utterance = new SpeechSynthesisUtterance(cleaned);
+            activeUtterance = utterance;
+            window.__jarvisActiveUtterance = utterance; // Prevent Chromium garbage-collection bug
 
-            function speakChunk(chunkText, isRetry = false) {
-                if (sessionId !== currentSpeechSession) {
-                    finish();
-                    return;
-                }
+            utterance.rate = 1.0;
+            utterance.pitch = 0.98;
+            utterance.volume = 1.0;
 
-                const utterance = new SpeechSynthesisUtterance(chunkText);
-                utterance.rate = 1.0;
-                utterance.pitch = 0.95;
-                utterance.volume = 1.0;
-
-                const jarvisVoice = getJarvisVoice();
-                if (!isRetry && jarvisVoice) {
-                    utterance.voice = jarvisVoice;
-                }
-
-                utterance.onstart = () => {
-                    if (jarvisSphere) jarvisSphere.setState("speaking");
-                };
-
-                utterance.onend = () => {
-                    if (sessionId === currentSpeechSession) {
-                        if (chunkIndex < chunks.length) {
-                            speakChunk(chunks[chunkIndex++]);
-                        } else {
-                            finish();
-                        }
-                    } else {
-                        finish();
-                    }
-                };
-
-                utterance.onerror = (evt) => {
-                    console.warn("JARVIS speech utterance error", evt);
-                    // If failed with custom voice, retry once with default voice
-                    if (!isRetry && jarvisVoice) {
-                        speakChunk(chunkText, true);
-                    } else {
-                        if (chunkIndex < chunks.length) {
-                            speakChunk(chunks[chunkIndex++]);
-                        } else {
-                            finish();
-                        }
-                    }
-                };
-
-                try {
-                    if (window.speechSynthesis.paused) {
-                        window.speechSynthesis.resume();
-                    }
-                    window.speechSynthesis.speak(utterance);
-                    if (window.speechSynthesis.paused) {
-                        window.speechSynthesis.resume();
-                    }
-                } catch (e) {
-                    console.error("SpeechSynthesis speak error:", e);
-                    finish();
-                }
+            const selectedVoice = getJarvisVoice();
+            if (selectedVoice) {
+                utterance.voice = selectedVoice;
             }
 
-            // Small delay so cancel state settles cleanly in Chromium
-            setTimeout(() => {
-                if (sessionId !== currentSpeechSession) return;
-                speakChunk(chunks[chunkIndex++]);
-            }, 60);
+            utterance.onstart = () => {
+                if (sessionId === currentSpeechSession && jarvisSphere) {
+                    jarvisSphere.setState("speaking");
+                }
+            };
+
+            utterance.onend = () => {
+                finish();
+            };
+
+            utterance.onerror = (evt) => {
+                console.warn("SpeechSynthesis error:", evt ? evt.error : "unknown");
+                // If failed with custom voice (network/permissions), retry once with default system voice
+                if (!finished && selectedVoice) {
+                    try {
+                        const fallback = new SpeechSynthesisUtterance(cleaned);
+                        activeUtterance = fallback;
+                        window.__jarvisActiveUtterance = fallback;
+                        fallback.rate = 1.0;
+                        fallback.pitch = 1.0;
+                        fallback.volume = 1.0;
+                        fallback.onstart = () => {
+                            if (sessionId === currentSpeechSession && jarvisSphere) {
+                                jarvisSphere.setState("speaking");
+                            }
+                        };
+                        fallback.onend = finish;
+                        fallback.onerror = finish;
+                        window.speechSynthesis.speak(fallback);
+                        return;
+                    } catch (err) {
+                        console.error("Speech fallback error:", err);
+                    }
+                }
+                finish();
+            };
+
+            if (jarvisSphere) {
+                jarvisSphere.setState("speaking");
+            }
+
+            try {
+                if (window.speechSynthesis.paused) {
+                    window.speechSynthesis.resume();
+                }
+                window.speechSynthesis.speak(utterance);
+                if (window.speechSynthesis.paused) {
+                    window.speechSynthesis.resume();
+                }
+            } catch (err) {
+                console.error("Speech speak error:", err);
+                finish();
+            }
         });
     }
 
@@ -1438,7 +1406,7 @@
                 addMessage("ai", data.reply);
                 history.push({ role: "assistant", content: data.reply });
                 window.aiChartActions.applyActions(data.actions || []);
-                if (voiceReply) {
+                if (voiceReply || voiceModeActive) {
                     await speakReply(data.reply);
                 }
             }
@@ -1446,7 +1414,9 @@
             console.error("Chat error:", e);
             thinking.remove();
             addMessage("ai", "⚠ Couldn't reach the AI backend — check the server is running and your internet connection.");
-            if (voiceReply) exitVoiceMode();
+            if (voiceReply || voiceModeActive) {
+                if (jarvisSphere) jarvisSphere.setState("idle");
+            }
         }
     }
 
@@ -1455,7 +1425,7 @@
         const value = input.value.trim();
         if (!value) return;
         input.value = "";
-        send(value);
+        send(value, voiceModeActive);
     });
 
     function setVoiceStatus(message) {
@@ -1480,6 +1450,9 @@
         voiceModeActive = true;
         panel.classList.add("voice-mode-open");
         voiceMode.hidden = false;
+        if (typeof window !== "undefined" && window.speechSynthesis) {
+            try { window.speechSynthesis.resume(); } catch (e) {}
+        }
         if (jarvisSphere) {
             jarvisSphere.start();
             jarvisSphere.setState("idle");
