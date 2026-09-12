@@ -75,9 +75,9 @@ def _save_signal(signal: dict, model_confidence: float) -> dict:
 
 
 @database_sync_to_async
-def _update_signal_strength(symbol: str, new_strength: float, new_rsi: float, new_price: float) -> dict:
+def _update_signal_strength(symbol: str, new_strength: float, new_rsi: float, new_price: float, timeframe: str = "1H") -> dict:
     """Update strength of existing active signal for live updates."""
-    signal = MarketSignal.objects.filter(symbol=symbol, status="active").first()
+    signal = MarketSignal.objects.filter(symbol=symbol, status="active", timeframe=timeframe).first()
     if signal:
         signal.signal_strength = new_strength
         signal.rsi = new_rsi
@@ -157,8 +157,8 @@ async def analyze_symbol(symbol: str):
         overall_sentiment = 0.0
         news = []
 
-    # Support multiple timeframes for different trading styles
-    timeframes = ["1H", "1D"]  # 1H for day trading, 1D for swing trading
+    # Support all timeframes for scalping, day trading, and swing trading
+    timeframes = ["1M", "5M", "15M", "30M", "1H", "4H", "1D"]
     for timeframe in timeframes:
         try:
             logger.debug(f"Generating signal for {symbol} with timeframe {timeframe}")
@@ -186,11 +186,12 @@ async def analyze_symbol(symbol: str):
                         symbol, 
                         signal["signal_strength"],
                         signal["rsi"],
-                        current_price
+                        current_price,
+                        timeframe=timeframe
                     )
                     if updated_signal:
                         await broadcast({"type": "signal_update", "signal": updated_signal})
-                        logger.info(f"Updated signal strength for {symbol}: {signal['signal_strength']:.2f}")
+                        logger.info(f"Updated signal strength for {symbol} ({timeframe}): {signal['signal_strength']:.2f}")
                 else:
                     # Create new signal
                     signal_dict = await _save_signal(signal, direction_confidence)
