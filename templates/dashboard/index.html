@@ -47,43 +47,59 @@
 
     // WebSocket connection to send chart data to backend
     let analysisWs = null;
+    let webSocketAvailable = false;
     
     function connectAnalysisWebSocket() {
+        // Check if we're on Vercel (WebSockets not supported)
+        if (window.location.hostname.includes('vercel.app')) {
+            console.log('WebSockets not supported on Vercel, using HTTP-only mode');
+            webSocketAvailable = false;
+            return;
+        }
+        
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws/analysis/`;
         
-        analysisWs = new WebSocket(wsUrl);
-        
-        analysisWs.onopen = function() {
-            console.log('Analysis WebSocket connected');
+        try {
+            analysisWs = new WebSocket(wsUrl);
             
-            // Send initial chart data
-            sendChartDataToBackend();
-        };
-        
-        analysisWs.onmessage = function(event) {
-            try {
-                const data = JSON.parse(event.data);
-                console.log('Received from analysis backend:', data);
-            } catch (e) {
-                console.error('Error parsing analysis message:', e);
-            }
-        };
-        
-        analysisWs.onerror = function(error) {
-            console.error('Analysis WebSocket error:', error);
-        };
-        
-        analysisWs.onclose = function() {
-            console.log('Analysis WebSocket closed, reconnecting...');
-            setTimeout(connectAnalysisWebSocket, 5000);
-        };
+            analysisWs.onopen = function() {
+                console.log('Analysis WebSocket connected');
+                webSocketAvailable = true;
+                
+                // Send initial chart data
+                sendChartDataToBackend();
+            };
+            
+            analysisWs.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    console.log('Received from analysis backend:', data);
+                } catch (e) {
+                    console.error('Error parsing analysis message:', e);
+                }
+            };
+            
+            analysisWs.onerror = function(error) {
+                console.error('Analysis WebSocket error:', error);
+                webSocketAvailable = false;
+            };
+            
+            analysisWs.onclose = function() {
+                console.log('Analysis WebSocket closed, reconnecting...');
+                webSocketAvailable = false;
+                setTimeout(connectAnalysisWebSocket, 5000);
+            };
+        } catch (e) {
+            console.error('Failed to create WebSocket connection:', e);
+            webSocketAvailable = false;
+        }
     }
 
     let lastAllMarketsSent = 0;
 
     function sendChartDataToBackend() {
-        if (!analysisWs || analysisWs.readyState !== WebSocket.OPEN) {
+        if (!webSocketAvailable || !analysisWs || analysisWs.readyState !== WebSocket.OPEN) {
             return;
         }
         
@@ -144,7 +160,7 @@
 
     // Send symbol changes to backend
     function sendSymbolChangeToBackend(symbol) {
-        if (!analysisWs || analysisWs.readyState !== WebSocket.OPEN) {
+        if (!webSocketAvailable || !analysisWs || analysisWs.readyState !== WebSocket.OPEN) {
             return;
         }
         
@@ -197,7 +213,7 @@
 
     // Initialize chart data integration
     document.addEventListener('DOMContentLoaded', function() {
-        // Connect to analysis WebSocket
+        // Connect to analysis WebSocket (will skip on Vercel)
         connectAnalysisWebSocket();
         
         // Wait for market data service to be ready
@@ -208,32 +224,38 @@
                     window.marketDataService.setCurrentSymbol(window.currentChartSymbol);
                 }
                 
-                // Throttled sending of real-time chart data to backend
-                let lastChartDataSentTime = 0;
-                function sendChartDataThrottled() {
-                    const now = Date.now();
-                    if (now - lastChartDataSentTime >= 350) {
-                        lastChartDataSentTime = now;
-                        sendChartDataToBackend();
+                // Only set up WebSocket integration if available
+                if (webSocketAvailable) {
+                    // Throttled sending of real-time chart data to backend
+                    let lastChartDataSentTime = 0;
+                    function sendChartDataThrottled() {
+                        const now = Date.now();
+                        if (now - lastChartDataSentTime >= 350) {
+                            lastChartDataSentTime = now;
+                            sendChartDataToBackend();
+                        }
                     }
+
+                    // Subscribe to price updates to send real-time data
+                    window.marketDataService.subscribe('price', function(price) {
+                        sendChartDataThrottled();
+                    });
+                    
+                    // Subscribe to candle updates
+                    window.marketDataService.subscribe('candle', function(candle) {
+                        sendChartDataThrottled();
+                    });
+
+                    // Listen to per-tick update events
+                    window.addEventListener('tick-update', function() {
+                        sendChartDataThrottled();
+                    });
+                    
+                    // Send periodic chart data updates (every 5 seconds)
+                    setInterval(sendChartDataToBackend, 5000);
                 }
-
-                // Subscribe to price updates to send real-time data
-                window.marketDataService.subscribe('price', function(price) {
-                    sendChartDataThrottled();
-                });
                 
-                // Subscribe to candle updates
-                window.marketDataService.subscribe('candle', function(candle) {
-                    sendChartDataThrottled();
-                });
-
-                // Listen to per-tick update events
-                window.addEventListener('tick-update', function() {
-                    sendChartDataThrottled();
-                });
-                
-                // Watch for symbol changes
+                // Watch for symbol changes (works with or without WebSockets)
                 let lastSymbol = window.currentChartSymbol;
                 setInterval(function() {
                     if (window.currentChartSymbol && window.currentChartSymbol !== lastSymbol) {
@@ -242,16 +264,17 @@
                         // Update market data service
                         window.marketDataService.setCurrentSymbol(window.currentChartSymbol);
                         
-                        // Send to backend
-                        sendSymbolChangeToBackend(window.currentChartSymbol);
+                        // Send to backend via HTTP (works on Vercel)
                         sendCurrentSymbolToBackend(window.currentChartSymbol);
+                        
+                        // Also send via WebSocket if available
+                        if (webSocketAvailable) {
+                            sendSymbolChangeToBackend(window.currentChartSymbol);
+                        }
                     }
                 }, 1000);
                 
-                // Send periodic chart data updates (every 5 seconds)
-                setInterval(sendChartDataToBackend, 5000);
-                
-                console.log('Chart data integration with analysis backend ready');
+                console.log('Chart data integration ready (WebSocket: ' + webSocketAvailable + ')');
             }
         }, 2000);
     });

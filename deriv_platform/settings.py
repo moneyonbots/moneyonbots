@@ -96,8 +96,10 @@ INSTALLED_APPS = [
     "stocks",
 ]
 
-INSTALLED_APPS.insert(0, "daphne")
-INSTALLED_APPS.insert(6, "channels")
+# Only install channels/daphne if not on Vercel (no WebSocket support)
+if not IS_VERCEL:
+    INSTALLED_APPS.insert(0, "daphne")
+    INSTALLED_APPS.insert(6, "channels")
 
 MIDDLEWARE = [
     "deriv_platform.middleware.VercelExceptionMiddleware",
@@ -115,7 +117,8 @@ MIDDLEWARE = [
 ROOT_URLCONF = "deriv_platform.urls"
 
 WSGI_APPLICATION = "deriv_platform.wsgi.application"
-ASGI_APPLICATION = "deriv_platform.asgi.application"
+# Only set ASGI_APPLICATION if not on Vercel (no WebSocket support)
+ASGI_APPLICATION = "deriv_platform.asgi.application" if not IS_VERCEL else None
 
 TEMPLATES = [
     {
@@ -135,12 +138,13 @@ TEMPLATES = [
 
 # Analysis loop now runs integrated with the main Django server process
 # using Django's startup signal. InMemoryChannelLayer works fine for
-# single-process operation.
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer",
+# single-process operation. Only configure if channels is installed.
+if "channels" in INSTALLED_APPS:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer",
+        }
     }
-}
 
 # Use SQLite locally. On Vercel the deploy filesystem is read-only, so
 # SQLite must live in /tmp unless DATABASE_URL (Postgres) is set.

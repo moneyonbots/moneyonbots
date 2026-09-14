@@ -24,7 +24,15 @@ from analysis.models import MarketSignal
 from analysis.services.broadcaster import broadcast
 from analysis.services.deriv_client import feed
 from analysis.services.indicators import add_technical_indicators
-from analysis.services.ml_engine import registry
+# Conditional import for ml_engine - not available on Vercel
+try:
+    from analysis.services.ml_engine import registry
+    ML_ENGINE_AVAILABLE = True
+except ImportError:
+    registry = None
+    ML_ENGINE_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning("ML engine not available (sklearn/scipy not installed). Using profitable signal generator instead.")
 from analysis.services.price_monitor import price_monitor
 from analysis.services.signal_engine import generate_signal, passes_trade_filters
 from analysis.services.profitable_signal_generator import generate_profitable_signal
@@ -148,8 +156,15 @@ async def analyze_symbol(symbol: str):
     if len(df_ind) < min_candles:
         return
 
-    model = registry.get_or_train(symbol, df)
-    proba_up = model.predict_proba_up(df_ind)
+    # Use ML engine if available, otherwise use simple probability
+    if ML_ENGINE_AVAILABLE and registry:
+        model = registry.get_or_train(symbol, df)
+        proba_up = model.predict_proba_up(df_ind)
+    else:
+        # Fallback to simple RSI-based probability when ML not available
+        rsi = df_ind['rsi'].iloc[-1] if 'rsi' in df_ind.columns else 50
+        proba_up = 1.0 - (rsi / 100.0)  # Simple probability based on RSI
+        logger.debug(f"Using simple RSI-based probability for {symbol}: {proba_up:.3f}")
 
     # Fetch news sentiment for market context
     try:

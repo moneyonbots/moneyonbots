@@ -16,5 +16,7 @@ def apply_vercel_migrations():
 
         call_command("migrate", "--run-syncdb", "--noinput", verbosity=0)
         logger.info("Vercel migrations applied")
-    except Exception:
-        logger.exception("Vercel migrations failed")
+    except Exception as e:
+        logger.exception("Vercel migrations failed: %s", str(e))
+        # Don't fail startup even if migrations fail
+        pass
