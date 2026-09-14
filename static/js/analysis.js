@@ -10,6 +10,14 @@
     const connLabel = document.getElementById("analysis-conn-label");
     if (!connDot || !connLabel) return;
 
+    // Check if we're on Vercel (WebSockets not supported)
+    if (window.location.hostname.includes('vercel.app')) {
+        console.log('WebSockets not supported on Vercel, analysis feed disabled');
+        connDot.classList.add("down");
+        connLabel.textContent = "analysis feed: unavailable";
+        return;
+    }
+
     function connectWebSocket() {
         const proto = window.location.protocol === "https:" ? "wss" : "ws";
         const ws = new WebSocket(`${proto}://${window.location.host}/ws/analysis/`);

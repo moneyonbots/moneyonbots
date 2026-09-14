@@ -874,9 +874,9 @@
     // Stock analysis should be implemented separately for stock charts
 
     // Audio functionality removed - JAVIS speech disabled
-        } catch (e) {
-            console.warn("Speech synthesis initialization failed:", e);
-        }
+    // No-op function for audio context initialization (functionality removed)
+    function initializeAudioContext() {
+        // Audio functionality removed - no-op for compatibility
     }
     
     // Initialize audio context on first user interaction
