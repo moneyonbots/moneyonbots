@@ -21,7 +21,10 @@ DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
 IS_VERCEL = bool(os.environ.get("VERCEL"))
 IS_PRODUCTION = IS_VERCEL or not DEBUG
 
-SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-default-key-for-deployment")
+# Use `or` (not getenv's default arg): an env var that exists but is EMPTY
+# would otherwise yield "" and Django 5.2 raises ImproperlyConfigured, 500ing
+# every request the moment the cookie signer touches SECRET_KEY.
+SECRET_KEY = os.getenv("SECRET_KEY") or "django-insecure-default-key-for-deployment"
 
 ALLOWED_HOSTS = [
     host.strip()
