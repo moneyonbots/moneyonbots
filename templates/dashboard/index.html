@@ -26,9 +26,9 @@
 
 <!-- Centralized Market Data Service -->
 <script src="{% static 'js/market_data_service.js' %}?v=6"></script>
-<!-- TradingView Charting Library -->
-<script src="{% static 'charting_library/charting_library.standalone.js' %}"></script>
-<script src="{% static 'js/tradingview_chart.js' %}?v=33"></script>
+<!-- Free, open-source Lightweight Charts (renders Deriv data via public WebSocket, no licensed library required) -->
+<script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+<script src="{% static 'js/chart.js' %}?v=1"></script>
 <script>
     // Show loader initially
     document.addEventListener('DOMContentLoaded', function() {
@@ -38,12 +38,29 @@
         }
     });
 
-    // Initialize TradingView chart
-    window.initTradingViewChart({
-        containerId: "chart-container",
-        defaultSymbol: "{{ default_symbol }}",
-        defaultInterval: "60", // Start with hourly instead of daily
-    });
+    // Initialize the Deriv candlestick chart. Hide the loader once it mounts
+    // (or if the charting library failed to load) so the page never spins forever.
+    (function mountChart() {
+        function start() {
+            var handle = null;
+            if (window.LightweightCharts && typeof window.initDerivChart === 'function') {
+                handle = window.initDerivChart({
+                    containerId: "chart-container",
+                    defaultSymbol: "{{ default_symbol }}",
+                });
+            }
+            var loader = document.getElementById('chart-loader');
+            if (loader) {
+                loader.classList.remove('active');
+            }
+            return handle;
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', start);
+        } else {
+            start();
+        }
+    })();
 
     // WebSocket connection to send chart data to backend
     let analysisWs = null;
