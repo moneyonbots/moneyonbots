@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% load i18n %}
-{% block title %}{% trans "Password Reset Sent" %} - Moneybots{% endblock %}
+{% block title %}{% trans "Sign Out" %} - Moneybots{% endblock %}
 
 {% block content %}
 <style>
@@ -29,8 +29,8 @@
     width: 64px;
     height: 64px;
     border-radius: 50%;
-    background: rgba(255, 106, 0, 0.1);
-    color: #ff6a00;
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -51,7 +51,12 @@
     line-height: 1.6;
 }
 
-.btn-primary {
+.btn-group {
+    display: flex;
+    gap: 12px;
+}
+
+.btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -65,15 +70,28 @@
     border: none;
     text-decoration: none;
     box-sizing: border-box;
-    background: linear-gradient(135deg, #ff6a00 0%, #ff8c00 100%);
-    color: #ffffff;
-    box-shadow: 0 4px 12px rgba(255, 106, 0, 0.25);
 }
 
-.btn-primary:hover {
-    background: linear-gradient(135deg, #f06400 0%, #ff8300 100%);
-    box-shadow: 0 6px 16px rgba(255, 106, 0, 0.35);
+.btn-danger {
+    background: #ef4444;
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25);
+}
+
+.btn-danger:hover {
+    background: #dc2626;
     transform: translateY(-1px);
+}
+
+.btn-secondary {
+    background: #f1f5f9;
+    color: #475569;
+    border: 1px solid #e2e8f0;
+}
+
+.btn-secondary:hover {
+    background: #e2e8f0;
+    color: #1e293b;
 }
 </style>
 
@@ -81,17 +99,28 @@
     <div class="auth-card">
         <div class="auth-icon-circle">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-                <polyline points="22,6 12,13 2,6"/>
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                <polyline points="16 17 21 12 16 7"></polyline>
+                <line x1="21" y1="12" x2="9" y2="12"></line>
             </svg>
         </div>
 
         <div class="auth-header">
-            <h1>Check Your Email</h1>
-            <p>We've sent a password reset link to your email address. If it doesn't appear within a few minutes, check your spam folder.</p>
+            <h1>Sign Out</h1>
+            <p>Are you sure you want to sign out of your Moneybots account?</p>
         </div>
 
-        <a href="{% url 'account_login' %}" class="btn-primary">Return to Sign In</a>
+        <form method="post" action="{% url 'account_logout' %}">
+            {% csrf_token %}
+            {% if redirect_field_value %}
+            <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">
+            {% endif %}
+
+            <div class="btn-group">
+                <a href="/" class="btn btn-secondary">Cancel</a>
+                <button type="submit" class="btn btn-danger">Sign Out</button>
+            </div>
+        </form>
     </div>
 </div>
 {% endblock %}

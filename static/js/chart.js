@@ -62,6 +62,7 @@
         const pending = {};
         let currentCandle = null; // Track current candle for tick updates
         let authorized = false;
+        let currentGranularity = 60; // Track current granularity
 
         function send(req) {
             req.req_id = reqId++;
@@ -82,7 +83,7 @@
             const req = {
                 ticks_history: symbol,
                 style: "candles",
-                granularity: 60,
+                granularity: currentGranularity,
                 adjust_start_time: 1,
                 end: "latest",
                 count: 500,
@@ -114,7 +115,7 @@
             const ohlcReq = {
                 ticks_history: symbol,
                 style: "candles",
-                granularity: 60,
+                granularity: currentGranularity,
                 adjust_start_time: 1,
                 subscribe: 1,
             };
@@ -177,12 +178,13 @@
             }
         };
 
+        // Per-tick candle update function
         function handleTickUpdate(tick) {
             if (!currentCandle) return;
 
             const price = parseFloat(tick.quote);
             const tickTime = tick.epoch * 1000;
-            const granularity = 60; // 1 minute candles
+            const granularity = currentGranularity; // Use current granularity
             const candleTime = currentCandle.time;
             const candleEndTime = candleTime + (granularity * 1000);
 
@@ -198,8 +200,37 @@
                 candlestickSeries.update(updatedCandle);
                 window.currentChartPrice = price;
                 currentCandle = updatedCandle;
+            } else {
+                // Create new candle when time period ends
+                const newCandleTime = Math.floor(tickTime / (granularity * 1000)) * (granularity * 1000);
+                const newCandle = {
+                    time: newCandleTime,
+                    open: price,
+                    high: price,
+                    low: price,
+                    close: price,
+                };
+                candlestickSeries.update(newCandle);
+                window.currentChartPrice = price;
+                currentCandle = newCandle;
             }
         }
+
+        // Enhanced symbol switching function
+        function switchSymbol(newSymbol) {
+            if (newSymbol === window.currentChartSymbol) return;
+            
+            window.currentChartSymbol = newSymbol;
+            currentCandle = null; // Reset current candle
+            window.currentChartPrice = null;
+            
+            // Resubscribe with new symbol
+            loadHistoricalData();
+            subscribeLive();
+        }
+
+        // Expose symbol switching function globally
+        window.switchChartSymbol = switchSymbol;
 
         ws.onclose = () => {
             setTimeout(() => {
@@ -218,6 +249,7 @@
         }).observe(container);
 
         let destroyed = false;
+
         return {
             chart,
             destroy() {

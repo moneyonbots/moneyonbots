@@ -27,7 +27,7 @@ ALLOWED_HOSTS = [
     host.strip()
     for host in os.getenv(
         "ALLOWED_HOSTS",
-        ".vercel.app,localhost,127.0.0.1,moneybots.vercel.app,moneyonbots.vercel.app",
+        ".vercel.app,localhost,127.0.0.1,testserver,moneybots.vercel.app,moneyonbots.vercel.app",
     ).split(",")
     if host.strip()
 ]

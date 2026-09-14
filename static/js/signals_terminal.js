@@ -21,7 +21,6 @@
     const categoryFilter = document.getElementById("term-category-filter");
     const directionFilter = document.getElementById("term-direction-filter");
     const sortSelect = document.getElementById("term-sort");
-    const soundToggle = document.getElementById("term-sound-toggle");
     const countEl = document.getElementById("term-count");
 
     // MIN_DIRECTION_CONFIDENCE mirrors the Analysis page's Live Signals
@@ -31,7 +30,6 @@
     const MIN_DIRECTION_CONFIDENCE = 0.55;
 
     let signalsBySymbol = new Map();
-    let soundOn = true;
 
     function getMarketType(symbol) {
         if (symbol.startsWith("frx")) {
@@ -64,23 +62,7 @@
         return `${hrs}h${mins % 60}m`;
     }
 
-    function playAlert() {
-        if (!soundOn) return;
-        try {
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.frequency.value = 880;
-            osc.type = "sine";
-            gain.gain.value = 0.12;
-            osc.start();
-            osc.stop(ctx.currentTime + 0.12);
-        } catch (e) {
-            /* audio blocked/unsupported — ignore */
-        }
-    }
+    // Audio alert functionality removed - JAVIS sound disabled
 
     function qualifies(signal) {
         if (signal.direction !== "Buy" && signal.direction !== "Sell") return false;
@@ -101,7 +83,7 @@
                 signal._isNew = false;
                 renderAll();
             }, 4000);
-            playAlert();
+            // Audio alert removed - JAVIS sound disabled
         }
         signalsBySymbol.set(signal.symbol, signal);
         renderAll();
@@ -256,13 +238,7 @@
     if (categoryFilter) categoryFilter.addEventListener("change", renderAll);
     if (directionFilter) directionFilter.addEventListener("change", renderAll);
     if (sortSelect) sortSelect.addEventListener("change", renderAll);
-    if (soundToggle) {
-        soundToggle.addEventListener("click", () => {
-            soundOn = !soundOn;
-            soundToggle.textContent = soundOn ? "\uD83D\uDD0A Sound On" : "\uD83D\uDD07 Sound Off";
-            soundToggle.classList.toggle("muted", !soundOn);
-        });
-    }
+    // Sound toggle functionality removed - JAVIS sound disabled
 
     loadInitial();
     connectWebSocket();

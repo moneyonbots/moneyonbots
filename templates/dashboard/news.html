@@ -751,8 +751,9 @@
             return;
         }
         
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Audio recording functionality disabled - JAVIS speech removed
+        alert('Audio recording functionality has been disabled.');
+        return;
             recordingChunks = [];
             recordingStartTime = Date.now();
             recorder = new MediaRecorder(stream);
@@ -786,27 +787,13 @@
     }
     
     function stopRecording() {
-        if (recorder && recorder.state === 'recording') {
-            recorder.stop();
-            aiVoiceBtn.classList.remove('recording');
-            clearInterval(recordingTimer);
-            updateVoiceStatus('Processing audio...');
-        }
+        // Audio recording functionality disabled
     }
     
     async function transcribeAudio(blob) {
-        const formData = new FormData();
-        formData.append('audio', blob, 'recording.webm');
-        
-        try {
-            const response = await fetch('/api/ai/transcribe/', {
-                method: 'POST',
-                body: formData
-            });
-            
-            const data = await response.json();
-            
-            if (data.text) {
+        // Audio transcription functionality disabled
+        console.log('Audio transcription disabled');
+    }
                 aiInput.value = data.text;
                 updateVoiceStatus('');
                 // Automatically send the transcribed message

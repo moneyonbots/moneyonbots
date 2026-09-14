@@ -4,6 +4,7 @@ from . import views
 
 urlpatterns = [
     path("chat/", views.chat, name="ai_chat"),
+    path("chat/stream/", views.chat_stream, name="ai_chat_stream"),
     path("chat/history/", views.chat_history, name="ai_chat_history"),
     path("speak/", views.speak, name="ai_speak"),
     path("transcribe/", views.transcribe, name="ai_transcribe"),

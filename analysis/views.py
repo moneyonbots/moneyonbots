@@ -6,7 +6,8 @@ from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from dashboard.context import base_context
 from markets.catalog import all_symbols, display_name, AVAILABLE_MARKETS
 
-from .models import MarketSignal
+from .models import MarketSignal, UserProfile
+from .services.strategy_modes import generate_strategy_mode_signal
 
 
 def _completed_signals_queryset():
@@ -28,33 +29,113 @@ def latest_signals(request):
 
 
 def active_signals(request):
-    """Return active signals — one per symbol to avoid duplicate live rows."""
-    seen = set()
-    signals = []
-    queryset = MarketSignal.objects.filter(status="active")
+    """Get all currently active signals for the live signals table, adapted to strategy_mode if requested."""
+    strategy_mode = request.GET.get('strategy_mode', 'default').lower()
     symbol = request.GET.get("symbol")
+    timeframe = request.GET.get("timeframe")
+
+    queryset = MarketSignal.objects.filter(status="active").order_by("-created_at")
     if symbol:
         queryset = queryset.filter(symbol=symbol)
-    timeframe = request.GET.get("timeframe")
     if timeframe:
         queryset = queryset.filter(timeframe=timeframe)
-    
-    # When timeframe is specified, allow multiple signals per symbol for different timeframes
-    # When no timeframe specified, show one signal per symbol (prefer 1H over 1D)
-    if timeframe:
-        # When timeframe is specified, return all signals for that timeframe
-        signals = [signal.as_dict() for signal in queryset.order_by("-created_at")[:100]]
-    else:
-        # When no timeframe, ensure one signal per symbol (prefer 1H over 1D)
-        for signal in queryset.order_by("-created_at"):
-            if signal.symbol in seen:
-                continue
-            seen.add(signal.symbol)
-            signals.append(signal.as_dict())
-            if len(signals) >= 100:
-                break
-    
-    return JsonResponse({"signals": signals})
+
+    from analysis.services.strategy_modes import adapt_signal_dict, generate_strategy_mode_signal
+    from analysis.services.deriv_client import feed
+    from analysis.services.indicators import add_technical_indicators
+
+    seen = set()
+    results = []
+
+    for signal in queryset:
+        if not timeframe and signal.symbol in seen:
+            continue
+        seen.add(signal.symbol)
+        sig_dict = signal.as_dict()
+
+        if strategy_mode and strategy_mode != 'default':
+            try:
+                df = feed.get_dataframe(signal.symbol)
+                if df is not None and len(df) >= 30:
+                    df = add_technical_indicators(df)
+                    sig_dict = generate_strategy_mode_signal(
+                        symbol=signal.symbol,
+                        df=df,
+                        model_proba_up=0.65,
+                        strategy_mode=strategy_mode,
+                        timeframe=signal.timeframe or "1H"
+                    )
+                else:
+                    sig_dict = adapt_signal_dict(sig_dict, strategy_mode)
+            except Exception:
+                sig_dict = adapt_signal_dict(sig_dict, strategy_mode)
+        else:
+            sig_dict['strategy_mode'] = 'default'
+
+        results.append(sig_dict)
+        if len(results) >= 100:
+            break
+
+    return JsonResponse({"signals": results, "current_mode": strategy_mode})
+
+
+@csrf_exempt
+def strategy_mode_analysis(request):
+    """Generate signal using specific strategy mode analysis (single or batch)."""
+    import json
+    from analysis.services.indicators import add_technical_indicators
+    from analysis.services.deriv_client import feed
+    from analysis.services.strategy_modes import generate_strategy_mode_signal, adapt_signal_dict
+
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST method required'}, status=405)
+
+    try:
+        data = json.loads(request.body)
+        symbol = data.get('symbol')
+        strategy_mode = data.get('strategy_mode', 'default').lower()
+        timeframe = data.get('timeframe', '1H')
+
+        if not symbol:
+            return JsonResponse({'error': 'Symbol required'}, status=400)
+
+        # 1. Try live dataframe if feed has accumulated data
+        try:
+            df = feed.get_dataframe(symbol)
+            if df is not None and len(df) >= 30:
+                df = add_technical_indicators(df)
+                signal = generate_strategy_mode_signal(
+                    symbol=symbol,
+                    df=df,
+                    model_proba_up=0.65,
+                    strategy_mode=strategy_mode,
+                    timeframe=timeframe
+                )
+                return JsonResponse({'signal': signal})
+        except Exception:
+            pass
+
+        # 2. Fallback to active MarketSignal from database adapted to strategy mode
+        db_sig = MarketSignal.objects.filter(symbol=symbol, status="active").order_by("-created_at").first()
+        if db_sig:
+            sig_dict = adapt_signal_dict(db_sig.as_dict(), strategy_mode)
+            return JsonResponse({'signal': sig_dict})
+
+        # 3. Fallback to general market catalog baseline adapted
+        fallback_sig = {
+            'symbol': symbol,
+            'market_name': symbol,
+            'market_type': 'synthetic',
+            'price': 100.0,
+            'direction': 'Buy',
+            'rsi': 52.0,
+            'atr': 1.5,
+            'timeframe': timeframe
+        }
+        return JsonResponse({'signal': adapt_signal_dict(fallback_sig, strategy_mode)})
+
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
 
 
 def signal_history(request):
@@ -168,3 +249,94 @@ def update_signal_price(request):
         })
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
+
+
+def toggle_favorite_api(request):
+    """API endpoint to toggle a symbol in user's favorites."""
+    if not request.user.is_authenticated:
+        return JsonResponse({"error": "Authentication required"}, status=401)
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST method allowed"}, status=405)
+
+    try:
+        import json
+        data = json.loads(request.body) if request.body else request.POST
+        symbol = data.get("symbol")
+        if not symbol:
+            return JsonResponse({"error": "Missing symbol"}, status=400)
+
+        profile, _ = UserProfile.objects.get_or_create(
+            user=request.user,
+            defaults={"favorites": ["frxEURUSD", "stpRNG", "cryBTCUSD", "frxXAUUSD"]}
+        )
+        is_fav = profile.toggle_favorite(symbol)
+        return JsonResponse({
+            "success": True,
+            "symbol": symbol,
+            "is_favorite": is_fav,
+            "favorites": profile.favorites or [],
+        })
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+def update_alert_preferences_api(request):
+    """API endpoint to update user alert preferences."""
+    if not request.user.is_authenticated:
+        return JsonResponse({"error": "Authentication required"}, status=401)
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST method allowed"}, status=405)
+
+    try:
+        import json
+        data = json.loads(request.body) if request.body else request.POST
+
+        profile, _ = UserProfile.objects.get_or_create(
+            user=request.user,
+            defaults={"favorites": ["frxEURUSD", "stpRNG", "cryBTCUSD", "frxXAUUSD"]}
+        )
+
+        if "email_alerts_enabled" in data:
+            profile.email_alerts_enabled = bool(data.get("email_alerts_enabled"))
+        if "alert_min_quality" in data:
+            try:
+                profile.alert_min_quality = max(0, min(100, int(data.get("alert_min_quality", 70))))
+            except (ValueError, TypeError):
+                pass
+        if "alert_directions" in data:
+            dir_val = data.get("alert_directions")
+            if dir_val in ["all", "Buy", "Sell"]:
+                profile.alert_directions = dir_val
+        if "alert_favorites_only" in data:
+            profile.alert_favorites_only = bool(data.get("alert_favorites_only"))
+        if "alert_timeframe" in data:
+            tf_val = data.get("alert_timeframe")
+            if tf_val in ["all", "1H", "4H", "1D"]:
+                profile.alert_timeframe = tf_val
+
+        profile.save()
+        return JsonResponse({
+            "success": True,
+            "message": "Alert preferences updated successfully",
+            "profile": profile.as_dict(),
+        })
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+def send_test_alert_api(request):
+    """API endpoint to trigger a sample alert email to the authenticated user."""
+    if not request.user.is_authenticated:
+        return JsonResponse({"error": "Authentication required"}, status=401)
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST method allowed"}, status=405)
+
+    try:
+        from alerts.email_alerts import send_test_alert
+        success, message = send_test_alert(request.user)
+        return JsonResponse({
+            "success": success,
+            "message": message,
+        })
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)

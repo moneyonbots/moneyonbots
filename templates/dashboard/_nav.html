@@ -24,8 +24,12 @@
         <a href="{% url 'live_signals' %}" class="{% if active_nav == 'signals' %}active{% endif %}">Signals</a>
         <a href="{% url 'news_calendar' %}" class="{% if active_nav == 'news' %}active{% endif %}">News</a>
         <a href="/stocks/" class="{% if active_nav == 'stocks' %}active{% endif %}">Stocks</a>
+        {% if user.is_authenticated %}
+        <a href="{% url 'user_profile' %}" class="{% if active_nav == 'profile' %}active{% endif %}">Dashboard</a>
+        {% endif %}
         <div class="mobile-auth-links">
             {% if user.is_authenticated %}
+            <a href="{% url 'user_profile' %}">Profile & Favorites</a>
             <a href="{% url 'account_logout' %}">Logout</a>
             {% else %}
             <a href="{% url 'account_login' %}">Login</a>
@@ -35,7 +39,13 @@
     </nav>
     <div class="auth-status">
         {% if user.is_authenticated %}
-        <span class="user-info">{{ user.email }}</span>
+        <a href="{% url 'user_profile' %}" class="user-info user-profile-link" title="Open Personal Dashboard & Alerts" style="display: flex; align-items: center; gap: 6px; text-decoration: none; color: inherit; padding: 4px 8px; border-radius: 6px; transition: background 0.15s;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+            <span>{{ user.email }}</span>
+        </a>
         <a href="{% url 'account_logout' %}" class="logout-btn">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>

@@ -25,10 +25,10 @@
 </div>
 
 <!-- Centralized Market Data Service -->
-<script src="{% static 'js/market_data_service.js' %}?v=5"></script>
+<script src="{% static 'js/market_data_service.js' %}?v=6"></script>
 <!-- TradingView Charting Library -->
 <script src="{% static 'charting_library/charting_library.standalone.js' %}"></script>
-<script src="{% static 'js/tradingview_chart.js' %}?v=31"></script>
+<script src="{% static 'js/tradingview_chart.js' %}?v=33"></script>
 <script>
     // Show loader initially
     document.addEventListener('DOMContentLoaded', function() {
@@ -208,14 +208,29 @@
                     window.marketDataService.setCurrentSymbol(window.currentChartSymbol);
                 }
                 
+                // Throttled sending of real-time chart data to backend
+                let lastChartDataSentTime = 0;
+                function sendChartDataThrottled() {
+                    const now = Date.now();
+                    if (now - lastChartDataSentTime >= 350) {
+                        lastChartDataSentTime = now;
+                        sendChartDataToBackend();
+                    }
+                }
+
                 // Subscribe to price updates to send real-time data
                 window.marketDataService.subscribe('price', function(price) {
-                    sendChartDataToBackend();
+                    sendChartDataThrottled();
                 });
                 
                 // Subscribe to candle updates
                 window.marketDataService.subscribe('candle', function(candle) {
-                    sendChartDataToBackend();
+                    sendChartDataThrottled();
+                });
+
+                // Listen to per-tick update events
+                window.addEventListener('tick-update', function() {
+                    sendChartDataThrottled();
                 });
                 
                 // Watch for symbol changes

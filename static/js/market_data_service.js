@@ -203,8 +203,11 @@
          * Handle tick updates
          */
         handleTick(tick) {
+            if (!tick || !tick.quote) return;
             const price = parseFloat(tick.quote);
+            if (isNaN(price)) return;
             const symbol = tick.symbol;
+
             if (symbol) {
                 this.pricesBySymbol[symbol] = price;
                 const candles = this.candlesBySymbol[symbol];
@@ -219,8 +222,8 @@
                 this.currentPrice = price;
             }
             
-            if (this.currentCandle && symbol === this.currentSymbol) {
-                const tickTime = tick.epoch * 1000;
+            if (this.currentCandle && (!symbol || symbol === this.currentSymbol)) {
+                const tickTime = (tick.epoch ? Number(tick.epoch) : Math.floor(Date.now() / 1000)) * 1000;
                 const granularity = 60;
                 const candleTime = this.currentCandle.time;
                 const candleEndTime = candleTime + (granularity * 1000);
@@ -239,17 +242,58 @@
                     if (lastIndex >= 0) {
                         this.historicalData[lastIndex] = updatedCandle;
                     }
+                } else {
+                    const newCandleStartTime = Math.floor(tickTime / (granularity * 1000)) * (granularity * 1000);
+                    const newCandle = {
+                        time: newCandleStartTime,
+                        open: price,
+                        high: price,
+                        low: price,
+                        close: price,
+                    };
+                    this.currentCandle = newCandle;
+                    this.historicalData.push(newCandle);
+                    if (this.historicalData.length > 1000) {
+                        this.historicalData.shift();
+                    }
                 }
+                this.notifySubscribers('candle', this.currentCandle);
             }
 
             this.notifySubscribers('tick', {
-                symbol: tick.symbol,
+                symbol: tick.symbol || this.currentSymbol,
                 quote: tick.quote,
                 price,
                 epoch: tick.epoch,
                 tick,
             });
             this.notifySubscribers('price', price);
+        }
+
+        /**
+         * Ingest tick directly from TradingView chart datafeed for instant synchronization
+         */
+        handleChartTick(symbol, price, tickTime, candle) {
+            if (!symbol || isNaN(price)) return;
+            this.pricesBySymbol[symbol] = price;
+            if (symbol === this.currentSymbol || !this.currentSymbol) {
+                this.currentPrice = price;
+                if (candle) {
+                    this.currentCandle = { ...candle };
+                    const lastIndex = this.historicalData.length - 1;
+                    if (lastIndex >= 0 && this.historicalData[lastIndex].time === candle.time) {
+                        this.historicalData[lastIndex] = this.currentCandle;
+                    } else if (lastIndex < 0 || this.historicalData[lastIndex].time < candle.time) {
+                        this.historicalData.push(this.currentCandle);
+                        if (this.historicalData.length > 1000) {
+                            this.historicalData.shift();
+                        }
+                    }
+                    this.notifySubscribers('candle', this.currentCandle);
+                }
+                this.notifySubscribers('price', price);
+            }
+            this.notifySubscribers('tick', { symbol, price, time: tickTime, candle });
         }
 
         /**
@@ -378,13 +422,21 @@
         }
 
         subscribeToSymbol(symbol, granularity = 60) {
+            if (!symbol) return;
             this.currentSymbol = symbol;
+            this.subscribedTicks.forEach((prevSym) => {
+                if (prevSym !== symbol) {
+                    this.send({ forget_all: 'ticks' });
+                    this.subscribedTicks.delete(prevSym);
+                }
+            });
             this.send({
                 ticks_history: symbol,
                 style: 'candles',
                 granularity: granularity,
                 adjust_start_time: 1,
-                subscribe: 1,
+                count: 1,
+                end: 'latest',
             });
             this.subscribeTicks(symbol);
         }

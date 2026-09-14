@@ -7,29 +7,91 @@
 <div id="scanner-modal" class="scanner-modal scanner-rebuilt" aria-hidden="true">
     <div class="scanner-modal-backdrop"></div>
     <section class="scanner-modal-content" role="dialog" aria-modal="true" aria-labelledby="scanner-title">
+        <!-- Laser Scanner Progress Beam -->
+        <div class="scanner-laser-bar" id="scanner-laser-bar"></div>
+
         <header class="scanner-modal-header">
             <div class="scanner-modal-title">
-                <span class="scanner-dot"></span>
+                <span class="scanner-beacon">
+                    <span class="scanner-beacon-ping"></span>
+                    <span class="scanner-beacon-dot"></span>
+                </span>
                 <span id="scanner-title">AI Pattern Scanner</span>
+                <span id="scanner-active-symbol" class="scanner-symbol-badge" title="Current Chart Market">—</span>
             </div>
-            <button id="scanner-close" class="scanner-close" type="button" aria-label="Close scanner">&times;</button>
+            <button id="scanner-close" class="scanner-close" type="button" aria-label="Close scanner">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
         </header>
 
         <div class="scanner-modal-body">
             <div class="scanner-controls">
-                <div class="scanner-mode-switch" role="group" aria-label="Scanner mode">
-                    <button type="button" data-scanner-mode="scalp">Scalping</button>
-                    <button type="button" data-scanner-mode="day" class="active">Day</button>
-                    <button type="button" data-scanner-mode="swing">Swing</button>
+                <!-- Timeframe Switcher -->
+                <div class="scanner-mode-switch" role="group" aria-label="Scanner timeframe">
+                    <button type="button" data-scanner-mode="1m" class="scanner-mode-btn" title="1 Minute · Ultra Scalp">
+                        <span class="scanner-mode-btn-tf">1M</span>
+                    </button>
+                    <button type="button" data-scanner-mode="5m" class="scanner-mode-btn" title="5 Minutes · Scalping">
+                        <span class="scanner-mode-btn-tf">5M</span>
+                    </button>
+                    <button type="button" data-scanner-mode="15m" class="scanner-mode-btn" title="15 Minutes · Momentum">
+                        <span class="scanner-mode-btn-tf">15M</span>
+                    </button>
+                    <button type="button" data-scanner-mode="30m" class="scanner-mode-btn" title="30 Minutes · Intraday">
+                        <span class="scanner-mode-btn-tf">30M</span>
+                    </button>
+                    <button type="button" data-scanner-mode="1h" class="scanner-mode-btn active" title="1 Hour · Day Trading">
+                        <span class="scanner-mode-btn-tf">1H</span>
+                    </button>
+                    <button type="button" data-scanner-mode="4h" class="scanner-mode-btn" title="4 Hours · Swing Entry">
+                        <span class="scanner-mode-btn-tf">4H</span>
+                    </button>
+                    <button type="button" data-scanner-mode="1d" class="scanner-mode-btn" title="1 Day · Swing Trading">
+                        <span class="scanner-mode-btn-tf">1D</span>
+                    </button>
                 </div>
+
+                <!-- Mode Info Description -->
+                <div id="scanner-mode-label" class="scanner-mode-label">
+                    1-hour chart · Day Trading · validated Entry / TP / SL
+                </div>
+
+                <!-- Scan Buttons -->
                 <div class="scanner-actions">
-                    <button id="scan-chart-btn" class="scan-btn primary" type="button">Scan Chart</button>
-                    <button id="auto-scan-btn" class="scan-btn auto" type="button" aria-pressed="false">Auto: Off</button>
+                    <button id="scan-chart-btn" class="scan-btn primary" type="button">
+                        <svg class="scan-icon-radar" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="9"></circle>
+                            <path d="M12 3a9 9 0 0 1 9 9"></path>
+                            <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                        <span class="scan-btn-text">Scan Chart</span>
+                    </button>
+                    <button id="auto-scan-btn" class="scan-btn auto" type="button" aria-pressed="false">
+                        <span class="auto-indicator-dot"></span>
+                        <span class="auto-btn-text">Auto: Off</span>
+                    </button>
+                </div>
+
+                <!-- Auto-scan Info Caption -->
+                <div id="scanner-note" class="scanner-note">
+                    Auto Scan checks the current market every minute. It does not place trades.
                 </div>
             </div>
 
             <div class="scanner-results">
-                <div class="scanner-status" id="scanner-status" role="status">Select a market and scan for patterns</div>
+                <!-- Status readout bar -->
+                <div class="scanner-status" id="scanner-status" role="status">
+                    <span class="scanner-status-icon">◈</span>
+                    <span class="scanner-status-text">Select a market and scan for patterns</span>
+                </div>
+
+                <!-- Summary HUD Card (Entry, TP, SL, R:R) -->
+                <div class="scanner-summary" id="scanner-summary"></div>
+
+                <!-- Active Card & History list -->
                 <div class="scanner-entries" id="scanner-entries"></div>
             </div>
         </div>

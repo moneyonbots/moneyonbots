@@ -7,11 +7,11 @@
 <aside id="brain-panel" class="brain-panel" aria-hidden="true">
     <div class="brain-panel-header">
         <div class="brain-panel-title">
-            <span class="brain-dot"></span> AI Chart Panel
+            <span class="brain-dot"></span> Jarvis AI
         </div>
         <button id="brain-close" class="brain-close" type="button" aria-label="Close">&times;</button>
     </div>
-    <div class="brain-panel-sub">Context-aware on <strong id="brain-current-symbol">—</strong></div>
+    <div class="brain-panel-sub">Market: <strong id="brain-current-symbol">—</strong></div>
 
     <div class="brain-tabs">
         <button type="button" class="brain-tab active" id="brain-tab-insight" data-tab="insight">Insight</button>
@@ -21,7 +21,7 @@
 
     <div class="brain-voice-mode" id="brain-voice-mode" hidden>
         <div class="brain-voice-orb-container" id="brain-voice-orb-container" role="button" tabindex="0" title="Click to speak with JARVIS" aria-label="Click to speak with JARVIS">
-            <canvas id="brain-voice-canvas" width="300" height="300" class="brain-voice-canvas"></canvas>
+            <canvas id="brain-voice-canvas" width="190" height="190" class="brain-voice-canvas"></canvas>
             <div class="brain-voice-orb-ambient"></div>
         </div>
         <div class="brain-voice-dots" id="brain-voice-dots" aria-label="Listening">
@@ -62,41 +62,11 @@
                     <div class="ai-metric"><span class="ai-metric-label">Risk:Reward</span><span class="ai-metric-value" id="m-rr">—</span></div>
                     <div class="ai-metric"><span class="ai-metric-label">Model Confidence</span><span class="ai-metric-value" id="m-conf">—</span></div>
                 </div>
+                <button type="button" class="ask-ai-btn" id="ask-ai-btn">Ask AI about this chart →</button>
                 <div class="ai-insight-note" id="ai-insight-empty">
                     Waiting for the analysis loop (<code>python manage.py run_analysis</code>) to publish a signal for this market…
                 </div>
             </div>
-
-            <div class="ai-news-card" id="ai-news-card">
-                <div class="ai-news-header">
-                    <span class="ai-news-title">Markets with News</span>
-                    <span class="conn-dot" id="ai-news-dot"></span>
-                </div>
-                <div class="ai-news-markets" id="ai-news-markets">
-                    <div class="ai-news-empty">Loading markets with news...</div>
-                </div>
-                <div class="ai-news-list" id="ai-news-list" style="display:none;">
-                    <button type="button" class="ai-news-back-btn" id="ai-news-back-btn">← Back to Markets</button>
-                    <div class="ai-news-empty">Select a market to see related economic events.</div>
-                </div>
-                <div class="ai-news-actions">
-                    <form class="brain-input-row news-input-row" id="news-form" style="display:none;">
-                        <button type="button" class="brain-attach" aria-label="Attach files" title="Attach files">
-                            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                        </button>
-                        <input type="text" id="news-input" placeholder="Ask anything" autocomplete="off" />
-                        <button type="button" class="brain-voice" id="brain-voice-news" aria-label="Record voice for news analysis" title="Record voice for news analysis">
-                            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3M8 22h8"/></svg>
-                        </button>
-                        <button type="submit" class="brain-send" aria-label="Send">
-                            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-                        </button>
-                    </form>
-                    <button type="button" class="ask-ai-btn" id="analyze-news-btn" style="display:none;">Analyze Market News</button>
-                </div>
-            </div>
-
-            <button type="button" class="ask-ai-btn" id="ask-ai-btn">Ask AI about this chart →</button>
         </div>
     </div>
 
@@ -108,6 +78,9 @@
                 <div class="ai-insight-headline">
                     <span class="dir-badge neutral" id="ai-analysis-bias">—</span>
                     <span id="ai-analysis-conf">—</span>
+                    <button type="button" class="brain-msg-speak" id="ai-analysis-speak-btn" title="Listen to Jarvis speak this briefing" aria-label="Listen to Jarvis speak this briefing" style="margin-left: auto; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 5px; background: var(--panel-sunken); border: 1px solid var(--border); color: var(--text-dim); cursor: pointer;">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
+                    </button>
                 </div>
                 <p class="ai-analysis-summary" id="ai-analysis-summary"></p>
                 <div class="ai-metric-grid">
@@ -125,13 +98,16 @@
     <div class="brain-tab-panel" id="brain-panel-chat" hidden>
         <div class="brain-messages" id="brain-messages">
             <div class="brain-msg brain-msg-ai">
-                Hi — I can see the chart, signal strength, RSI/ATR, gap analysis, and comprehensive stock metrics for whatever market you're viewing. Ask me anything about it.
+                Greetings. I am Jarvis, your AI trading &amp; chart assistant. I can analyze the live chart, technical indicators, pattern scanner signals, and stock gap metrics. What would you like to explore?
             </div>
         </div>
         <form class="brain-input-row" id="brain-form">
             <input type="text" id="brain-input" placeholder="Ask about this chart…" autocomplete="off" />
             <button type="button" class="brain-voice" id="brain-voice" aria-label="Record a voice question" title="Record a voice question">
                 <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3M8 22h8"/></svg>
+            </button>
+            <button type="button" class="brain-voice-mode-toggle" id="brain-voice-mode-toggle" aria-label="Enter voice conversation mode" title="Enter voice conversation mode like ChatGPT">
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
             </button>
             <button type="submit" class="brain-send" aria-label="Send">↑</button>
         </form>

@@ -35,6 +35,7 @@
     const voiceModeStatus = document.getElementById("brain-voice-mode-status");
     const voiceOrbContainer = document.getElementById("brain-voice-orb-container");
     const voiceCanvas = document.getElementById("brain-voice-canvas");
+    const voiceModeToggle = document.getElementById("brain-voice-mode-toggle");
     const symbolLabel = document.getElementById("brain-current-symbol");
 
     const tabs = panel.querySelectorAll(".brain-tab");
@@ -787,6 +788,23 @@
             fields.rsi.textContent = fmt(snapshot.rsi, 1);
         }
         window.aiChartActions.applyActions(analysis.actions || []);
+
+        const analysisSpeakBtn = document.getElementById("ai-analysis-speak-btn");
+        if (analysisSpeakBtn) {
+            analysisSpeakBtn.onclick = (e) => {
+                e.stopPropagation();
+                if (currentSpeechAudio || (window.speechSynthesis && window.speechSynthesis.speaking)) {
+                    stopCurrentSpeech();
+                } else {
+                    const speechBriefing = [
+                        analysis.summary || "",
+                        analysis.setup ? ("Setup trigger: " + analysis.setup) : "",
+                        analysis.risks ? ("Risk factor: " + analysis.risks) : ""
+                    ].filter(Boolean).join(". ");
+                    if (speechBriefing) speakReply(speechBriefing);
+                }
+            };
+        }
     }
 
     async function runChartAnalysis() {
@@ -855,17 +873,21 @@
     // Stock analysis functions removed - gap analysis tab removed from deriv chart panel
     // Stock analysis should be implemented separately for stock charts
 
-    // Voice cache & JARVIS speech synthesis engine
-    let availableVoices = [];
-    function refreshVoices() {
-        if (typeof window !== "undefined" && window.speechSynthesis) {
-            availableVoices = window.speechSynthesis.getVoices() || [];
+    // Audio functionality removed - JAVIS speech disabled
+        } catch (e) {
+            console.warn("Speech synthesis initialization failed:", e);
         }
     }
-    if (typeof window !== "undefined" && window.speechSynthesis) {
-        refreshVoices();
-        window.speechSynthesis.onvoiceschanged = refreshVoices;
-    }
+    
+    // Initialize audio context on first user interaction
+    document.addEventListener('click', () => {
+        initializeAudioContext();
+    }, { once: true });
+    
+    // Also initialize on touch for mobile
+    document.addEventListener('touchstart', () => {
+        initializeAudioContext();
+    }, { once: true });
 
     function getJarvisVoice() {
         const voices = (window.speechSynthesis ? window.speechSynthesis.getVoices() : []) || availableVoices;
@@ -879,45 +901,40 @@
             const lang = (v.lang || "").toLowerCase().replace("_", "-");
             let score = 0;
 
-            // HIGHEST PRIORITY: Kenyan voices
-            const isKenyan = lang.includes("ke") || name.includes("kenya") || name.includes("kenyan") || name.includes("african");
-            if (isKenyan) score += 500;
-
-            // HIGH PRIORITY: African English voices (South Africa, Nigeria, etc.)
-            const isAfricanEnglish = lang.includes("en-za") || lang.includes("en-ng") || name.includes("south africa") || name.includes("nigeria") || name.includes("african english");
-            if (isAfricanEnglish) score += 250;
-
             const isEnglish = lang.startsWith("en");
-            if (!isEnglish) return -200;
+            if (!isEnglish) return -500;
 
-            // Prioritize reliable offline/local voices
-            if (v.localService) score += 100;
-            if (name.includes("online") || !v.localService) score -= 120;
+            // TOP PRIORITY: Premium Neural / Natural voices (non-robotic)
+            if (name.includes("ryan")) score += 600;
+            if (name.includes("natural")) score += 300;
+            if (name.includes("neural")) score += 300;
+            if (name.includes("online")) score += 150;
 
-            // Kenyan and African voice name patterns
-            const kenyanAfricanNames = ["kenya", "african", "east african", "nairobi", "lagos", "johannesburg", "nigeria", "south africa"];
-            const isKenyanAfrican = kenyanAfricanNames.some(n => name.includes(n));
-            if (isKenyanAfrican) score += 180;
+            // British English priority for the commanding Jarvis tone
+            if (lang.includes("en-gb")) score += 200;
+            if (name.includes("uk") || name.includes("british") || name.includes("great britain")) score += 150;
 
-            // Traditional male voice names (prefer for "asili" natural sound)
-            const traditionalMaleNames = ["george", "daniel", "oliver", "arthur", "brian", "guy", "charles", "alfred", "edward", "james", "william", "david", "mark", "christopher", "andrew", "alex"];
-            const isTraditionalMale = traditionalMaleNames.some(n => name.includes(n));
-            if (isTraditionalMale) score += 60;
+            // Authoritative commanding male names
+            const bossyMaleNames = [
+                "ryan", "george", "guy", "christopher", "arthur", "oliver",
+                "daniel", "brian", "alfred", "charles", "edward", "david"
+            ];
+            for (const n of bossyMaleNames) {
+                if (name.includes(n)) {
+                    score += 120;
+                    break;
+                }
+            }
 
-            // Penalize female voices for "asili" natural male sound
+            // High-grade system voices
+            if (name.includes("google uk english male")) score += 350;
+            if (name.includes("microsoft ryan")) score += 400;
+            if (name.includes("microsoft george")) score += 250;
+
+            // Penalize female voices and robotic voices
             const femaleNames = ["zira", "susan", "hazel", "jenny", "aria", "sonia", "libby", "mia", "victoria", "karen", "samantha", "stephanie", "catherine", "heera", "female", "woman", "lady"];
-            const isFemale = femaleNames.some(f => name.includes(f));
-            if (isFemale) score -= 80;
-
-            // Boost specific high-quality voices
-            if (name.includes("google uk english male")) score += 50;
-            if (name.includes("microsoft george")) score += 45;
-            if (name.includes("microsoft david")) score += 40;
-            if (name.includes("daniel")) score += 35;
-
-            // Prefer English variants that sound more natural for African context
-            if (lang.includes("en-gb")) score += 30; // British English often sounds more formal/natural
-            if (lang.includes("en-us")) score += 20; // American English
+            if (femaleNames.some(f => name.includes(f))) score -= 400;
+            if (name.includes("desktop") && !name.includes("natural") && !name.includes("neural")) score -= 50;
 
             return score;
         }
@@ -945,6 +962,12 @@
         text = text.replace(/```actions[\s\S]*?```/gi, "");
         text = text.replace(/```[\s\S]*?```/g, "");
         text = text.replace(/`([^`]+)`/g, "$1");
+
+        // Normalize non-ASCII quotes, dashes, and garbled symbols
+        text = text.replace(/[\u2018\u2019]/g, "'");
+        text = text.replace(/[\u201C\u201D]/g, '"');
+        text = text.replace(/[\u2013\u2014\u2015\u2212]/g, "-");
+        text = text.replace(/â[€\u0080-\u009F]+/g, " ");
 
         // Strip markdown links [label](url) -> label
         text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
@@ -1017,6 +1040,8 @@
             this.audioLevel = 0;
             this.targetAudioLevel = 0;
             this.audioCtx = null;
+            this.micAnalyser = null;
+            this.outputAnalyser = null;
             this.analyser = null;
             this.dataArray = null;
             this.sourceNode = null;
@@ -1030,7 +1055,7 @@
             const dpr = Math.min(window.devicePixelRatio || 1, 2);
             this.dpr = dpr;
             const rect = this.canvas.getBoundingClientRect();
-            const size = rect.width || 220;
+            const size = rect.width || 180;
             this.canvas.width = size * dpr;
             this.canvas.height = size * dpr;
             this.width = size;
@@ -1038,18 +1063,20 @@
         }
 
         initParticles() {
+            // ChatGPT voice orb has subtle ethereal floating dust/stars
             this.particles = [];
-            for (let i = 0; i < 30; i++) {
+            for (let i = 0; i < 24; i++) {
                 const angle = Math.random() * Math.PI * 2;
-                const dist = 75 + Math.random() * 35;
+                const dist = 60 + Math.random() * 32;
                 this.particles.push({
                     angle: angle,
                     dist: dist,
-                    speed: 0.015 + Math.random() * 0.02,
-                    size: 1.2 + Math.random() * 2.2,
-                    z: (Math.random() - 0.5) * 60,
-                    opacity: 0.35 + Math.random() * 0.65,
-                    hue: Math.random() > 0.4 ? 185 : (Math.random() > 0.5 ? 260 : 45)
+                    baseDist: dist,
+                    speed: (0.008 + Math.random() * 0.012) * (Math.random() > 0.5 ? 1 : -1),
+                    size: 1.0 + Math.random() * 1.8,
+                    z: (Math.random() - 0.5) * 40,
+                    opacity: 0.2 + Math.random() * 0.5,
+                    hue: Math.random() > 0.5 ? 190 : 270
                 });
             }
         }
@@ -1061,12 +1088,16 @@
                 if (!AudioCtxClass) return;
                 if (!this.audioCtx) this.audioCtx = new AudioCtxClass();
                 if (this.audioCtx.state === "suspended") this.audioCtx.resume();
-                this.analyser = this.audioCtx.createAnalyser();
-                this.analyser.fftSize = 256;
-                this.analyser.smoothingTimeConstant = 0.75;
-                this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+                if (this.sourceNode) {
+                    try { this.sourceNode.disconnect(); } catch (e) {}
+                    this.sourceNode = null;
+                }
+                this.micAnalyser = this.audioCtx.createAnalyser();
+                this.micAnalyser.fftSize = 256;
+                this.micAnalyser.smoothingTimeConstant = 0.8;
+                this.dataArray = new Uint8Array(this.micAnalyser.frequencyBinCount);
                 this.sourceNode = this.audioCtx.createMediaStreamSource(stream);
-                this.sourceNode.connect(this.analyser);
+                this.sourceNode.connect(this.micAnalyser);
             } catch (err) {
                 console.warn("JarvisSphere WebAudio init failed", err);
             }
@@ -1088,6 +1119,11 @@
             if (voiceMode) {
                 voiceMode.classList.remove("is-speaking", "is-listening", "is-thinking", "is-idle");
                 voiceMode.classList.add("is-" + state);
+            }
+            
+            // Handle thinking state
+            if (state === "thinking") {
+                // Audio removed
             }
         }
 
@@ -1125,118 +1161,103 @@
             ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
             // Audio amplitude evaluation
-            if (this.analyser && this.dataArray) {
-                this.analyser.getByteFrequencyData(this.dataArray);
+            let activeAnalyser = null;
+            if (this.state === "speaking" && this.outputAnalyser) {
+                activeAnalyser = this.outputAnalyser;
+            } else if (this.state === "listening" && this.micAnalyser) {
+                activeAnalyser = this.micAnalyser;
+            } else if (this.analyser) {
+                activeAnalyser = this.analyser;
+            }
+
+            if (activeAnalyser) {
+                if (!this.dataArray || this.dataArray.length !== activeAnalyser.frequencyBinCount) {
+                    this.dataArray = new Uint8Array(activeAnalyser.frequencyBinCount);
+                }
+                activeAnalyser.getByteFrequencyData(this.dataArray);
                 let sum = 0;
-                const count = Math.min(this.dataArray.length, 32);
+                const count = Math.min(this.dataArray.length, 36);
                 for (let i = 0; i < count; i++) {
                     sum += this.dataArray[i];
                 }
                 const avg = sum / (count * 255);
                 this.targetAudioLevel = avg;
+            } else if (this.state === "speaking") {
+                // Natural speech rhythm wave simulation
+                const speechWave = (Math.sin(this.t * 7.2) * 0.32 + Math.sin(this.t * 12.5) * 0.22 + 0.42);
+                this.targetAudioLevel = Math.max(0.15, Math.min(0.85, speechWave));
             } else {
                 this.targetAudioLevel = 0;
             }
-            this.audioLevel += (this.targetAudioLevel - this.audioLevel) * 0.28;
 
-            let speed = 0.025;
-            if (this.state === "thinking") speed = 0.075;
-            else if (this.state === "speaking") speed = 0.045;
-            else if (this.state === "listening") speed = 0.040;
+            // Smooth audio damping
+            this.audioLevel += (this.targetAudioLevel - this.audioLevel) * 0.22;
+
+            // Speed based on ChatGPT states
+            let speed = 0.022;
+            if (this.state === "thinking") speed = 0.065; // Swift orbital swirl
+            else if (this.state === "speaking") speed = 0.048; // Expressive pulsation
+            else if (this.state === "listening") speed = 0.035; // Sensitive rippling
             this.t += speed;
 
-            const baseRadius = (w * 0.32) * dpr;
+            const baseRadius = (w * 0.29) * dpr;
+            const pulseAmp = (this.audioLevel * 18 * dpr);
+            const r = baseRadius + pulseAmp;
 
-            // 1. Outer Volumetric Corona Bloom
-            const coronaGrad = ctx.createRadialGradient(cx, cy, baseRadius * 0.3, cx, cy, baseRadius * 1.55);
+            // -------------------------------------------------------------
+            // A. ChatGPT Outer Atmospheric Diffuse Glow
+            // -------------------------------------------------------------
+            const outerGlow = ctx.createRadialGradient(cx, cy, r * 0.35, cx, cy, r * 1.7);
             if (this.state === "listening") {
-                coronaGrad.addColorStop(0, "rgba(16, 185, 129, 0.55)");
-                coronaGrad.addColorStop(0.5, "rgba(52, 211, 153, 0.25)");
-                coronaGrad.addColorStop(1, "rgba(16, 185, 129, 0)");
+                outerGlow.addColorStop(0, "rgba(20, 184, 166, 0.45)");
+                outerGlow.addColorStop(0.5, "rgba(56, 189, 248, 0.2)");
+                outerGlow.addColorStop(1, "rgba(20, 184, 166, 0)");
             } else if (this.state === "thinking") {
-                coronaGrad.addColorStop(0, "rgba(59, 130, 246, 0.5)");
-                coronaGrad.addColorStop(0.5, "rgba(99, 102, 241, 0.25)");
-                coronaGrad.addColorStop(1, "rgba(59, 130, 246, 0)");
+                outerGlow.addColorStop(0, "rgba(99, 102, 241, 0.45)");
+                outerGlow.addColorStop(0.5, "rgba(168, 85, 247, 0.25)");
+                outerGlow.addColorStop(1, "rgba(99, 102, 241, 0)");
             } else if (this.state === "speaking") {
-                coronaGrad.addColorStop(0, "rgba(0, 242, 255, 0.65)");
-                coronaGrad.addColorStop(0.45, "rgba(0, 119, 255, 0.35)");
-                coronaGrad.addColorStop(1, "rgba(0, 242, 255, 0)");
+                outerGlow.addColorStop(0, "rgba(14, 165, 233, 0.55)");
+                outerGlow.addColorStop(0.45, "rgba(59, 130, 246, 0.28)");
+                outerGlow.addColorStop(0.8, "rgba(244, 63, 94, 0.15)");
+                outerGlow.addColorStop(1, "rgba(14, 165, 233, 0)");
             } else {
-                coronaGrad.addColorStop(0, "rgba(0, 242, 255, 0.4)");
-                coronaGrad.addColorStop(0.5, "rgba(0, 119, 255, 0.18)");
-                coronaGrad.addColorStop(1, "rgba(0, 242, 255, 0)");
+                // Idle: Pure iconic ChatGPT cyan-blue-purple soft glow
+                outerGlow.addColorStop(0, "rgba(56, 189, 248, 0.35)");
+                outerGlow.addColorStop(0.5, "rgba(129, 140, 248, 0.18)");
+                outerGlow.addColorStop(1, "rgba(56, 189, 248, 0)");
             }
-            ctx.fillStyle = coronaGrad;
+            ctx.fillStyle = outerGlow;
             ctx.beginPath();
-            ctx.arc(cx, cy, baseRadius * 1.55, 0, Math.PI * 2);
+            ctx.arc(cx, cy, r * 1.7, 0, Math.PI * 2);
             ctx.fill();
 
-            // 2. Background Orbital Particles (z < 0)
-            this.drawParticles(ctx, cx, cy, dpr, true);
-
-            // 3. Swirling Internal Plasma Vortices (JARVIS Core)
-            ctx.save();
-            ctx.globalCompositeOperation = "screen";
-            for (let p = 0; p < 3; p++) {
-                const rot = this.t * (p % 2 === 0 ? 1 : -1.2) + (p * Math.PI / 1.5);
-                const scaleX = 0.85 + Math.sin(this.t * 2 + p) * 0.15;
-                const scaleY = 0.7 + Math.cos(this.t * 1.5 + p) * 0.15;
-                ctx.save();
-                ctx.translate(cx, cy);
-                ctx.rotate(rot);
-                ctx.scale(scaleX, scaleY);
-                const plasmaGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, baseRadius * 0.9);
-                if (this.state === "listening") {
-                    plasmaGrad.addColorStop(0, "rgba(255, 255, 255, 0.95)");
-                    plasmaGrad.addColorStop(0.35, "rgba(16, 185, 129, 0.85)");
-                    plasmaGrad.addColorStop(0.7, "rgba(5, 150, 105, 0.45)");
-                    plasmaGrad.addColorStop(1, "rgba(16, 185, 129, 0)");
-                } else if (this.state === "thinking") {
-                    plasmaGrad.addColorStop(0, "rgba(255, 255, 255, 0.9)");
-                    plasmaGrad.addColorStop(0.3, "rgba(59, 130, 246, 0.8)");
-                    plasmaGrad.addColorStop(0.7, "rgba(99, 102, 241, 0.4)");
-                    plasmaGrad.addColorStop(1, "rgba(59, 130, 246, 0)");
-                } else if (this.state === "speaking") {
-                    plasmaGrad.addColorStop(0, "rgba(255, 255, 255, 0.95)");
-                    plasmaGrad.addColorStop(0.25, "rgba(0, 242, 255, 0.9)");
-                    plasmaGrad.addColorStop(0.65, "rgba(0, 119, 255, 0.55)");
-                    plasmaGrad.addColorStop(1, "rgba(0, 242, 255, 0)");
-                } else {
-                    plasmaGrad.addColorStop(0, "rgba(255, 255, 255, 0.85)");
-                    plasmaGrad.addColorStop(0.3, "rgba(0, 242, 255, 0.7)");
-                    plasmaGrad.addColorStop(0.65, "rgba(0, 119, 255, 0.45)");
-                    plasmaGrad.addColorStop(1, "rgba(0, 242, 255, 0)");
-                }
-                ctx.fillStyle = plasmaGrad;
-                ctx.beginPath();
-                ctx.arc(0, 0, baseRadius * 0.9, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.restore();
-            }
-            ctx.restore();
-
-            // 4. Main 3D Liquid Morphing Blob
-            const numPoints = 120;
+            // -------------------------------------------------------------
+            // B. ChatGPT Smooth Organic Morphing Sphere (Harmonic Fourier Waves)
+            // -------------------------------------------------------------
+            const numPoints = 140;
             const points = [];
-            const morphAmp = (this.state === "listening" ? (6 + this.audioLevel * 38) :
-                              this.state === "thinking" ? 14 :
-                              this.state === "speaking" ? (9 + Math.sin(this.t * 7) * 7) : 5) * dpr;
+            const morphIntensity = (this.state === "listening" ? (3 + this.audioLevel * 24) :
+                                    this.state === "thinking" ? 10 :
+                                    this.state === "speaking" ? (7 + Math.sin(this.t * 5) * 6 + this.audioLevel * 16) : 3.5) * dpr;
 
             for (let i = 0; i < numPoints; i++) {
                 const angle = (i / numPoints) * Math.PI * 2;
-                const w1 = Math.sin(angle * 2 + this.t * 2.2);
-                const w2 = Math.cos(angle * 3 - this.t * 1.8);
-                const w3 = Math.sin(angle * 5 + this.t * 3.1) * 0.5;
-                const w4 = Math.cos(angle * 7 - this.t * 4.0) * 0.25;
-                const distortion = (w1 + w2 + w3 + w4) * morphAmp;
-                const r = baseRadius + distortion;
+                // Complex organic harmonics resembling 3D fluid membrane
+                const h1 = Math.sin(angle * 2 + this.t * 1.8);
+                const h2 = Math.cos(angle * 3 - this.t * 1.4);
+                const h3 = Math.sin(angle * 4 + this.t * 2.6) * 0.45;
+                const h4 = Math.cos(angle * 6 - this.t * 3.2) * 0.22;
+                
+                const distortion = (h1 + h2 + h3 + h4) * morphIntensity;
+                const currentRadius = Math.max(r * 0.6, r + distortion);
                 points.push({
-                    x: cx + Math.cos(angle) * r,
-                    y: cy + Math.sin(angle) * r
+                    x: cx + Math.cos(angle) * currentRadius,
+                    y: cy + Math.sin(angle) * currentRadius
                 });
             }
 
-            // Render Blob Path with smooth curves
+            // Draw smooth curve perimeter
             ctx.save();
             ctx.beginPath();
             ctx.moveTo((points[0].x + points[numPoints - 1].x) / 2, (points[0].y + points[numPoints - 1].y) / 2);
@@ -1248,99 +1269,152 @@
             }
             ctx.closePath();
 
-            // Membrane gradient fill
-            const blobGrad = ctx.createLinearGradient(
-                cx + Math.cos(this.t) * baseRadius,
-                cy + Math.sin(this.t) * baseRadius,
-                cx - Math.cos(this.t) * baseRadius,
-                cy - Math.sin(this.t) * baseRadius
-            );
-            if (this.state === "listening") {
-                blobGrad.addColorStop(0, "rgba(52, 211, 153, 0.94)");
-                blobGrad.addColorStop(0.45, "rgba(16, 185, 129, 0.88)");
-                blobGrad.addColorStop(1, "rgba(5, 150, 105, 0.92)");
-            } else if (this.state === "thinking") {
-                blobGrad.addColorStop(0, "rgba(96, 165, 250, 0.9)");
-                blobGrad.addColorStop(0.5, "rgba(59, 130, 246, 0.85)");
-                blobGrad.addColorStop(1, "rgba(37, 99, 235, 0.9)");
-            } else if (this.state === "speaking") {
-                blobGrad.addColorStop(0, "rgba(103, 232, 249, 0.95)");
-                blobGrad.addColorStop(0.45, "rgba(0, 242, 255, 0.9)");
-                blobGrad.addColorStop(0.85, "rgba(0, 119, 255, 0.85)");
-                blobGrad.addColorStop(1, "rgba(29, 78, 216, 0.9)");
-            } else {
-                blobGrad.addColorStop(0, "rgba(34, 211, 238, 0.9)");
-                blobGrad.addColorStop(0.5, "rgba(0, 150, 255, 0.85)");
-                blobGrad.addColorStop(1, "rgba(30, 64, 175, 0.88)");
-            }
-            ctx.fillStyle = blobGrad;
+            // Base spherical dark obsidian depth (ChatGPT voice canvas base)
+            ctx.fillStyle = "#0c1222";
             ctx.fill();
 
-            // 5. Inner Glass Reflection & Highlights
+            // Clip all internal fluid gradient layers inside the morphing sphere
             ctx.save();
             ctx.clip();
 
-            // Specular highlight bubble
-            const specX = cx - baseRadius * 0.32;
-            const specY = cy - baseRadius * 0.32;
-            const specGrad = ctx.createRadialGradient(specX, specY, 0, specX, specY, baseRadius * 0.7);
-            specGrad.addColorStop(0, "rgba(255, 255, 255, 0.85)");
-            specGrad.addColorStop(0.25, "rgba(255, 255, 255, 0.35)");
-            specGrad.addColorStop(0.7, "rgba(255, 255, 255, 0)");
+            // -------------------------------------------------------------
+            // C. ChatGPT 4o Iconic Fluid Gradients (Cyan, Indigo, Magenta, Coral)
+            // -------------------------------------------------------------
+            // Layer 1: Swirling Deep Azure / Violet Bed
+            const deepGrad = ctx.createLinearGradient(
+                cx + Math.cos(this.t * 0.7) * r,
+                cy + Math.sin(this.t * 0.7) * r,
+                cx - Math.cos(this.t * 0.7) * r,
+                cy - Math.sin(this.t * 0.7) * r
+            );
+            deepGrad.addColorStop(0, "#0ea5e9");
+            deepGrad.addColorStop(0.35, "#3b82f6");
+            deepGrad.addColorStop(0.7, "#6366f1");
+            deepGrad.addColorStop(1, "#8b5cf6");
+            ctx.fillStyle = deepGrad;
+            ctx.fillRect(cx - r * 1.5, cy - r * 1.5, r * 3, r * 3);
+
+            // Layer 2: Swirling Cyan/Teal Fluid Blobs (Additive Blend)
+            ctx.globalCompositeOperation = "screen";
+            const b1X = cx + Math.cos(this.t * 1.2) * (r * 0.45);
+            const b1Y = cy + Math.sin(this.t * 0.9) * (r * 0.45);
+            const blob1 = ctx.createRadialGradient(b1X, b1Y, 0, b1X, b1Y, r * 0.95);
+            blob1.addColorStop(0, "rgba(34, 211, 238, 0.95)");
+            blob1.addColorStop(0.4, "rgba(6, 182, 212, 0.7)");
+            blob1.addColorStop(0.8, "rgba(14, 165, 233, 0.25)");
+            blob1.addColorStop(1, "rgba(14, 165, 233, 0)");
+            ctx.fillStyle = blob1;
+            ctx.beginPath();
+            ctx.arc(b1X, b1Y, r * 0.95, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Layer 3: Vibrant Coral / Rose Accent Fluid Blob (Iconic ChatGPT warm highlight)
+            const b2X = cx + Math.cos(-this.t * 1.4 + Math.PI) * (r * 0.4);
+            const b2Y = cy + Math.sin(this.t * 1.1 + Math.PI * 0.5) * (r * 0.4);
+            const blob2 = ctx.createRadialGradient(b2X, b2Y, 0, b2X, b2Y, r * 0.85);
+            blob2.addColorStop(0, "rgba(251, 113, 133, 0.95)");
+            blob2.addColorStop(0.4, "rgba(244, 63, 94, 0.65)");
+            blob2.addColorStop(0.75, "rgba(217, 70, 239, 0.25)");
+            blob2.addColorStop(1, "rgba(244, 63, 94, 0)");
+            ctx.fillStyle = blob2;
+            ctx.beginPath();
+            ctx.arc(b2X, b2Y, r * 0.85, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Layer 4: Floating White/Sky Core Luminescence
+            const coreX = cx + Math.sin(this.t * 1.5) * (r * 0.2);
+            const coreY = cy + Math.cos(this.t * 1.3) * (r * 0.2);
+            const coreGlow = ctx.createRadialGradient(coreX, coreY, 0, coreX, coreY, r * 0.65);
+            coreGlow.addColorStop(0, "rgba(255, 255, 255, 0.85)");
+            coreGlow.addColorStop(0.35, "rgba(224, 242, 254, 0.55)");
+            coreGlow.addColorStop(0.7, "rgba(186, 230, 253, 0.15)");
+            coreGlow.addColorStop(1, "rgba(255, 255, 255, 0)");
+            ctx.fillStyle = coreGlow;
+            ctx.beginPath();
+            ctx.arc(coreX, coreY, r * 0.65, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Layer 5: State-Specific Color Infusion
+            if (this.state === "listening") {
+                // Emerald/Mint reactive pulse for user listening
+                const listenBlob = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 0.9);
+                listenBlob.addColorStop(0, `rgba(52, 211, 153, ${0.45 + this.audioLevel * 0.45})`);
+                listenBlob.addColorStop(0.6, "rgba(16, 185, 129, 0.3)");
+                listenBlob.addColorStop(1, "rgba(5, 150, 105, 0)");
+                ctx.fillStyle = listenBlob;
+                ctx.beginPath();
+                ctx.arc(cx, cy, r * 0.9, 0, Math.PI * 2);
+                ctx.fill();
+            } else if (this.state === "thinking") {
+                // Violet/Indigo deep processing swirl
+                const thinkBlob = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 0.9);
+                thinkBlob.addColorStop(0, "rgba(192, 132, 252, 0.65)");
+                thinkBlob.addColorStop(0.5, "rgba(147, 51, 234, 0.35)");
+                thinkBlob.addColorStop(1, "rgba(126, 34, 206, 0)");
+                ctx.fillStyle = thinkBlob;
+                ctx.beginPath();
+                ctx.arc(cx, cy, r * 0.9, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Layer 6: Soft 3D Fresnel Edge & Inner Shadow (Glassy physical realism)
+            ctx.globalCompositeOperation = "source-over";
+            const fresnel = ctx.createRadialGradient(cx, cy, r * 0.65, cx, cy, r);
+            fresnel.addColorStop(0, "rgba(0, 0, 0, 0)");
+            fresnel.addColorStop(0.7, "rgba(10, 15, 30, 0.15)");
+            fresnel.addColorStop(0.95, "rgba(15, 23, 42, 0.65)");
+            fresnel.addColorStop(1, "rgba(2, 6, 23, 0.85)");
+            ctx.fillStyle = fresnel;
+            ctx.beginPath();
+            ctx.arc(cx, cy, r * 1.1, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Specular Glass Reflection Sheen (Top Left)
+            const specX = cx - r * 0.32;
+            const specY = cy - r * 0.32;
+            const specGrad = ctx.createRadialGradient(specX, specY, 0, specX, specY, r * 0.7);
+            specGrad.addColorStop(0, "rgba(255, 255, 255, 0.65)");
+            specGrad.addColorStop(0.25, "rgba(255, 255, 255, 0.2)");
+            specGrad.addColorStop(0.65, "rgba(255, 255, 255, 0)");
             ctx.fillStyle = specGrad;
             ctx.beginPath();
-            ctx.arc(specX, specY, baseRadius * 0.7, 0, Math.PI * 2);
+            ctx.arc(specX, specY, r * 0.7, 0, Math.PI * 2);
             ctx.fill();
 
-            // Inner shadow rim
-            const innerShadowGrad = ctx.createRadialGradient(cx, cy, baseRadius * 0.4, cx, cy, baseRadius * 1.05);
-            innerShadowGrad.addColorStop(0, "rgba(0, 0, 0, 0)");
-            innerShadowGrad.addColorStop(0.75, "rgba(0, 0, 0, 0.15)");
-            innerShadowGrad.addColorStop(1, "rgba(0, 0, 0, 0.65)");
-            ctx.fillStyle = innerShadowGrad;
-            ctx.beginPath();
-            ctx.arc(cx, cy, baseRadius * 1.1, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.restore(); // End clipping
 
-            ctx.restore();
-
-            // Glowing perimeter rim stroke
-            ctx.lineWidth = 2.5 * dpr;
-            ctx.strokeStyle = (this.state === "listening") ? "rgba(209, 250, 229, 0.9)" :
-                              (this.state === "speaking") ? "rgba(217, 249, 255, 0.95)" :
-                              (this.state === "thinking") ? "rgba(219, 234, 254, 0.85)" : "rgba(255, 255, 255, 0.7)";
+            // -------------------------------------------------------------
+            // D. Ultra-Thin Ethereal Rim Light
+            // -------------------------------------------------------------
+            ctx.save();
+            ctx.lineWidth = 1.6 * dpr;
+            let rimColor = "rgba(255, 255, 255, 0.45)";
+            if (this.state === "listening") rimColor = "rgba(167, 243, 208, 0.7)";
+            else if (this.state === "speaking") rimColor = "rgba(224, 242, 254, 0.8)";
+            else if (this.state === "thinking") rimColor = "rgba(233, 213, 255, 0.7)";
+            ctx.strokeStyle = rimColor;
             ctx.stroke();
             ctx.restore();
 
-            // 6. Foreground Orbital Particles (z >= 0)
-            this.drawParticles(ctx, cx, cy, dpr, false);
+            // -------------------------------------------------------------
+            // E. Ambient Ethereal Micro-Sparks
+            // -------------------------------------------------------------
+            this.drawDust(ctx, cx, cy, dpr);
         }
 
-        drawParticles(ctx, cx, cy, dpr, isBack) {
+        drawDust(ctx, cx, cy, dpr) {
             ctx.save();
-            const baseHue = (this.state === "listening") ? 155 :
-                            (this.state === "thinking") ? 225 :
-                            (this.state === "speaking") ? 190 : 195;
             for (const p of this.particles) {
-                p.angle += p.speed * (this.state === "thinking" ? 3.0 : (this.state === "speaking" ? 1.8 : 1.0));
-                const x3d = Math.cos(p.angle) * p.dist * dpr;
-                const y3d = Math.sin(p.angle) * p.dist * 0.38 * dpr;
-                const z3d = Math.sin(p.angle) * p.dist * dpr;
-
-                const isCurrentBack = z3d < 0;
-                if (isCurrentBack !== isBack) continue;
-
-                const alpha = isBack ? p.opacity * 0.35 : p.opacity;
-                const size = (isBack ? p.size * 0.75 : p.size * 1.25) * dpr;
-
-                const px = cx + x3d;
-                const py = cy + y3d + (Math.sin(this.t + p.angle) * 6 * dpr);
+                p.angle += p.speed * (this.state === "thinking" ? 2.2 : (this.state === "speaking" ? 1.4 : 1.0));
+                const rad = (p.baseDist + Math.sin(this.t + p.angle * 2) * 6) * dpr;
+                const px = cx + Math.cos(p.angle) * rad;
+                const py = cy + Math.sin(p.angle) * rad * 0.85;
 
                 ctx.beginPath();
-                ctx.arc(px, py, size, 0, Math.PI * 2);
-                ctx.fillStyle = `hsla(${baseHue}, 90%, 65%, ${alpha})`;
-                ctx.shadowColor = `hsla(${baseHue}, 100%, 70%, 1)`;
-                ctx.shadowBlur = (isBack ? 4 : 10) * dpr;
+                ctx.arc(px, py, p.size * dpr, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${p.opacity * 0.65})`;
+                ctx.shadowColor = "rgba(255, 255, 255, 0.8)";
+                ctx.shadowBlur = 4 * dpr;
                 ctx.fill();
             }
             ctx.restore();
@@ -1354,7 +1428,50 @@
     let currentSpeechAudioUrl = null;
     let activeUtterance = null;
 
+    function playVoiceChime(type) {
+        try {
+            const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+            if (!AudioCtxClass) return;
+            const ctx = (jarvisSphere && jarvisSphere.audioCtx) ? jarvisSphere.audioCtx : new AudioCtxClass();
+            if (ctx.state === "suspended") ctx.resume();
+            
+            const now = ctx.currentTime;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+
+            if (type === "start") {
+                // Soft musical upward chime (ChatGPT style)
+                osc.type = "sine";
+                osc.frequency.setValueAtTime(523.25, now);
+                osc.frequency.exponentialRampToValueAtTime(783.99, now + 0.12);
+                gain.gain.setValueAtTime(0.001, now);
+                gain.gain.linearRampToValueAtTime(0.06, now + 0.025);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+                osc.start(now);
+                osc.stop(now + 0.17);
+            } else if (type === "done") {
+                // Soft musical acknowledgment chime (ChatGPT style)
+                osc.type = "sine";
+                osc.frequency.setValueAtTime(783.99, now);
+                osc.frequency.exponentialRampToValueAtTime(659.25, now + 0.12);
+                gain.gain.setValueAtTime(0.001, now);
+                gain.gain.linearRampToValueAtTime(0.05, now + 0.025);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+                osc.start(now);
+                osc.stop(now + 0.17);
+            }
+        } catch (e) {
+            // WebAudio autoplay or permission restriction
+        }
+    }
+
     function stopCurrentSpeech() {
+        const wasSpeaking = (currentSpeechAudio != null) || 
+                            (typeof window !== "undefined" && window.speechSynthesis && window.speechSynthesis.speaking) || 
+                            (jarvisSphere && jarvisSphere.state === "speaking");
+        currentSpeechSession++;
         if (currentSpeechAudio) {
             try {
                 currentSpeechAudio.pause();
@@ -1369,48 +1486,18 @@
         if (typeof window !== "undefined" && window.speechSynthesis) {
             try { window.speechSynthesis.cancel(); } catch (e) {}
         }
+        activeUtterance = null;
+        window.__jarvisActiveUtterance = null;
         if (jarvisSphere && jarvisSphere.state === "speaking") {
             jarvisSphere.setState("idle");
         }
+        return wasSpeaking;
     }
 
     async function speakReply(text) {
-        if (!text) return Promise.resolve();
-
-        const sessionId = ++currentSpeechSession;
-        const cleaned = cleanTextForJarvisSpeech(text);
-        if (!cleaned) return Promise.resolve();
-
-        stopCurrentSpeech();
-
-        if (jarvisSphere) jarvisSphere.setState("speaking");
-
-        const transcriptEl = document.getElementById("brain-voice-transcript");
-        const transcriptText = document.getElementById("brain-voice-transcript-text");
-        if (transcriptEl && transcriptText) {
-            transcriptText.textContent = cleaned;
-            transcriptEl.hidden = false;
-        }
-
-        // 1. Try Human Neural Speech API (edge-tts British JARVIS voice en-GB-RyanNeural)
-        try {
-            const resp = await fetch("/api/ai/speak/", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text: cleaned })
-            });
-
-            if (!resp.ok) {
-                throw new Error("Neural TTS failed with status " + resp.status);
-            }
-
-            const blob = await resp.blob();
-            if (sessionId !== currentSpeechSession) return;
-
-            const audioUrl = URL.createObjectURL(blob);
-            currentSpeechAudioUrl = audioUrl;
-            const audio = new Audio(audioUrl);
-            currentSpeechAudio = audio;
+        // Audio functionality removed - JAVIS speech disabled
+        return Promise.resolve();
+    }
 
             return new Promise((resolve) => {
                 let finished = false;
@@ -1425,12 +1512,17 @@
                     if (sessionId === currentSpeechSession && jarvisSphere) {
                         jarvisSphere.setState("idle");
                     }
+                    if (sessionId === currentSpeechSession && voiceModeStatus && voiceModeActive) {
+                        voiceModeStatus.textContent = "Listening...";
+                    }
                     resolve();
                 }
 
                 audio.onplay = () => {
-                    if (sessionId === currentSpeechSession && jarvisSphere) {
-                        jarvisSphere.setState("speaking");
+                    console.log("Neural TTS audio started playing with volume:", audio.volume);
+                    if (sessionId === currentSpeechSession) {
+                        if (jarvisSphere) jarvisSphere.setState("speaking");
+                        if (voiceModeStatus) voiceModeStatus.textContent = "Speaking... Tap to interrupt";
                     }
                 };
                 audio.onended = finish;
@@ -1439,71 +1531,55 @@
                     finish();
                 };
 
-                // Connect audio to sphere analyser for real-time visual wave reaction
+                // Connect audio to sphere output analyser for real-time visual wave reaction
                 try {
                     const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
                     if (AudioCtxClass && jarvisSphere) {
                         if (!jarvisSphere.audioCtx) jarvisSphere.audioCtx = new AudioCtxClass();
                         if (jarvisSphere.audioCtx.state === "suspended") jarvisSphere.audioCtx.resume();
-                        if (!jarvisSphere.analyser) {
-                            jarvisSphere.analyser = jarvisSphere.audioCtx.createAnalyser();
-                            jarvisSphere.analyser.fftSize = 256;
-                            jarvisSphere.dataArray = new Uint8Array(jarvisSphere.analyser.frequencyBinCount);
+                        if (!jarvisSphere.outputAnalyser) {
+                            jarvisSphere.outputAnalyser = jarvisSphere.audioCtx.createAnalyser();
+                            jarvisSphere.outputAnalyser.fftSize = 256;
+                            jarvisSphere.outputAnalyser.smoothingTimeConstant = 0.75;
+                            jarvisSphere.outputAnalyser.connect(jarvisSphere.audioCtx.destination);
                         }
                         const source = jarvisSphere.audioCtx.createMediaElementSource(audio);
-                        source.connect(jarvisSphere.analyser);
-                        jarvisSphere.analyser.connect(jarvisSphere.audioCtx.destination);
+                        source.connect(jarvisSphere.outputAnalyser);
                     }
                 } catch (audioCtxErr) {}
 
-                audio.play().catch((playErr) => {
-                    console.warn("Audio play() blocked:", playErr);
-                    finish();
+                // Ensure audio plays immediately without user interaction
+                console.log("Attempting to play neural TTS audio with volume:", audio.volume);
+                audio.play().then(() => {
+                    console.log("Neural TTS audio started successfully");
+                }).catch((playErr) => {
+                    console.warn("Audio play() blocked, attempting autoplay workaround:", playErr);
+                    // Try to resume audio context and play again
+                    try {
+                        if (jarvisSphere && jarvisSphere.audioCtx && jarvisSphere.audioCtx.state === "suspended") {
+                            jarvisSphere.audioCtx.resume().then(() => {
+                                console.log("Audio context resumed, retrying play");
+                                audio.play().catch(() => {
+                                    console.warn("Audio play failed after context resume");
+                                    finish();
+                                });
+                            }).catch(() => finish());
+                        } else {
+                            console.warn("No audio context available, finishing");
+                            finish();
+                        }
+                    } catch (e) {
+                        console.warn("Audio context resume failed:", e);
+                        finish();
+                    }
                 });
             });
         } catch (err) {
-            console.warn("Human neural TTS fetch error, fallback to browser voice:", err);
-            return speakReplyFallback(cleaned, sessionId);
+            console.warn("Human neural TTS fetch error:", err);
         }
     }
 
-    function speakReplyFallback(cleaned, sessionId) {
-        if (typeof window === "undefined" || !window.speechSynthesis) {
-            if (jarvisSphere) jarvisSphere.setState("idle");
-            return Promise.resolve();
-        }
-
-        return new Promise((resolve) => {
-            let finished = false;
-            function finish() {
-                if (finished) return;
-                finished = true;
-                activeUtterance = null;
-                window.__jarvisActiveUtterance = null;
-                if (sessionId === currentSpeechSession && jarvisSphere) {
-                    jarvisSphere.setState("idle");
-                }
-                resolve();
-            }
-
-            const utterance = new SpeechSynthesisUtterance(cleaned);
-            activeUtterance = utterance;
-            window.__jarvisActiveUtterance = utterance;
-
-            utterance.rate = 1.0;
-            utterance.pitch = 0.98;
-            utterance.volume = 1.0;
-
-            const selectedVoice = getJarvisVoice();
-            if (selectedVoice) {
-                utterance.voice = selectedVoice;
-            }
-
-            utterance.onstart = () => {
-                if (sessionId === currentSpeechSession && jarvisSphere) {
-                    jarvisSphere.setState("speaking");
-                }
-            };
+    // Audio functions removed - JAVIS speech disabled
             utterance.onend = finish;
             utterance.onerror = (evt) => {
                 console.warn("Browser speech fallback error:", evt);
@@ -1511,14 +1587,53 @@
             };
 
             try {
-                if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+                // Ensure speech synthesis is ready and play immediately
+                console.log("Starting speech synthesis with volume:", utterance.volume);
+                
+                // Cancel any existing speech to prevent conflicts
+                window.speechSynthesis.cancel();
+                
+                // Resume if paused
+                if (window.speechSynthesis.paused) {
+                    console.log("Resuming paused speech synthesis");
+                    window.speechSynthesis.resume();
+                }
+                
+                // Speak the utterance
                 window.speechSynthesis.speak(utterance);
-                if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+                
+                // Multiple checks to ensure speech is playing
+                setTimeout(() => {
+                    if (window.speechSynthesis.paused) {
+                        console.log("Speech was paused, resuming...");
+                        window.speechSynthesis.resume();
+                    }
+                    // Force another check
+                    setTimeout(() => {
+                        if (window.speechSynthesis.paused) {
+                            console.log("Speech still paused, forcing resume...");
+                            window.speechSynthesis.resume();
+                        }
+                    }, 200);
+                }, 100);
+                
+                // Final check to ensure audio is playing
+                setTimeout(() => {
+                    if (window.speechSynthesis.speaking) {
+                        console.log("JARVIS is speaking successfully");
+                    } else {
+                        console.warn("JARVIS speech may not be playing");
+                    }
+                }, 300);
+                
             } catch (err) {
+                console.warn("Browser speech synthesis error:", err);
                 finish();
             }
         });
     }
+
+    // Audio functions removed - JAVIS speech disabled
 
     async function loadChatHistory() {
         if (!messages) return;
@@ -1587,7 +1702,10 @@
             return;
         }
         
-        console.log("send called with voiceReply:", voiceReply);
+        // Auto-enable voice reply if in voice mode
+        if (voiceModeActive) {
+            voiceReply = true;
+        }
         
         const payload = chartPayload();
         const validation = validateChartPayload(payload);
@@ -1615,41 +1733,150 @@
         }
 
         try {
-            const res = await fetch("/api/ai/chat/", {
+            const res = await fetch("/api/ai/chat/stream/", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload),
             });
-            
-            if (!res.ok) {
-                throw new Error(`HTTP error! status: ${res.status}`);
+
+            if (!res.ok || !res.body) {
+                throw new Error(`HTTP ${res.status}`);
             }
-            
-            const data = await res.json();
+
             thinking.remove();
-            if (data.error) {
-                addMessage("ai", "⚠ " + data.error);
-                if (voiceReply && jarvisSphere) jarvisSphere.setState("idle");
-            } else {
-                addMessage("ai", data.reply);
-                history.push({ role: "assistant", content: data.reply });
-                window.aiChartActions.applyActions(data.actions || []);
-                
-                // Voice response for voice input (ChatGPT-style)
-                if (voiceReply) {
-                    console.log("Voice reply requested, AI response:", data.reply.substring(0, 50) + "...");
-                    console.log("About to call speakReply");
-                    await speakReply(data.reply);
-                    console.log("speakReply completed");
+
+            // Create streaming AI message bubble
+            const aiMsg = document.createElement("div");
+            aiMsg.className = "brain-msg brain-msg-ai";
+            const textSpan = document.createElement("span");
+            aiMsg.appendChild(textSpan);
+            messages.appendChild(aiMsg);
+            messages.scrollTop = messages.scrollHeight;
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let accumulatedText = "";
+            let buffer = "";
+            let finalActions = [];
+            let streamSuccess = false;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop(); // keep partial line
+
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed.startsWith("data:")) continue;
+                    const jsonStr = trimmed.replace(/^data:\s*/, "");
+                    if (!jsonStr) continue;
+
+                    try {
+                        const parsed = JSON.parse(jsonStr);
+                        if (parsed.error) {
+                            textSpan.textContent = "⚠ " + parsed.error;
+                            streamSuccess = false;
+                            break;
+                        }
+                        if (parsed.chunk) {
+                            streamSuccess = true;
+                            accumulatedText += parsed.chunk;
+                            // Clean out any raw actions blocks from view while streaming
+                            const displayText = accumulatedText.replace(/```actions[\s\S]*?```/g, "").replace(/```actions[\s\S]*$/, "");
+                            textSpan.textContent = displayText;
+                            messages.scrollTop = messages.scrollHeight;
+                        }
+                        if (parsed.done) {
+                            if (parsed.actions) finalActions = parsed.actions;
+                            if (parsed.full_reply) accumulatedText = parsed.full_reply;
+                        }
+                    } catch (e) {
+                        // ignore malformed JSON chunk
+                    }
                 }
             }
-        } catch (e) {
-            console.error("Chat error:", e);
-            thinking.remove();
-            addMessage("ai", "⚠ Couldn't reach the AI backend — check the server is running and your internet connection.");
-            if (voiceReply || voiceModeActive) {
-                if (jarvisSphere) jarvisSphere.setState("idle");
+
+            const cleanFinal = accumulatedText.replace(/```actions[\s\S]*?```/g, "").trim() || accumulatedText;
+            textSpan.textContent = cleanFinal;
+
+            if (cleanFinal) {
+                history.push({ role: "assistant", content: cleanFinal });
+
+                // Attach speak button to message bubble
+                const speakBtn = document.createElement("button");
+                speakBtn.type = "button";
+                speakBtn.className = "brain-msg-speak";
+                speakBtn.title = "Listen to JARVIS human voice";
+                speakBtn.setAttribute("aria-label", "Listen to JARVIS human voice");
+                speakBtn.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>';
+                speakBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    if (currentSpeechAudio || (window.speechSynthesis && window.speechSynthesis.speaking)) {
+                        stopCurrentSpeech();
+                    } else {
+                        speakReply(cleanFinal);
+                    }
+                });
+                aiMsg.appendChild(speakBtn);
             }
+
+            if (finalActions && finalActions.length > 0) {
+                window.aiChartActions.applyActions(finalActions);
+            }
+
+            // Voice response if requested - immediate response
+            if (voiceReply && cleanFinal) {
+                const turnSession = currentSpeechSession;
+                console.log("Voice reply requested, speaking:", cleanFinal);
+                await speakReply(cleanFinal);
+                if (turnSession === currentSpeechSession && voiceModeActive && !isProcessingSpeech) {
+                    // Minimal delay for natural conversation flow
+                    setTimeout(() => {
+                        if (turnSession === currentSpeechSession && voiceModeActive && !isProcessingSpeech && (!recorder || recorder.state !== "recording")) {
+                            startVoiceListening();
+                        }
+                    }, 100);
+                }
+            } else if (voiceReply && jarvisSphere) {
+                jarvisSphere.setState("idle");
+            }
+        } catch (e) {
+            console.error("Streaming chat error, attempting standard fallback:", e);
+            thinking.remove();
+            try {
+                const fallbackRes = await fetch("/api/ai/chat/", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                });
+                const data = await fallbackRes.json();
+                if (data.error) {
+                    addMessage("ai", "⚠ " + data.error);
+                } else {
+                    addMessage("ai", data.reply);
+                    history.push({ role: "assistant", content: data.reply });
+                    window.aiChartActions.applyActions(data.actions || []);
+                    if (voiceReply) {
+                        const turnSession = currentSpeechSession;
+                        console.log("Fallback voice reply requested, speaking:", data.reply);
+                        await speakReply(data.reply);
+                        if (turnSession === currentSpeechSession && voiceModeActive && !isProcessingSpeech) {
+                            // Minimal delay for immediate conversation flow
+                            setTimeout(() => {
+                                if (turnSession === currentSpeechSession && voiceModeActive && !isProcessingSpeech && (!recorder || recorder.state !== "recording")) {
+                                    startVoiceListening();
+                                }
+                            }, 100);
+                        }
+                    }
+                }
+            } catch (err) {
+                addMessage("ai", "⚠ Couldn't reach Jarvis backend — please verify your connection.");
+            }
+            if (voiceReply && jarvisSphere && (!voiceModeActive || !voiceReply)) jarvisSphere.setState("idle");
         }
     }
 
@@ -1679,167 +1906,444 @@
         setVoiceStatus(message);
     }
 
+    function cleanupVoiceRecording() {
+        if (vadTimer) {
+            clearInterval(vadTimer);
+            vadTimer = null;
+        }
+        if (recordingTimer) {
+            clearInterval(recordingTimer);
+            recordingTimer = null;
+        }
+        if (recorder) {
+            try {
+                if (recorder.state === "recording") {
+                    recorder.onstop = null;
+                    recorder.stop();
+                }
+            } catch (e) {}
+            recorder = null;
+        }
+        recordingChunks = [];
+        hasDetectedSpeech = false;
+        speechConsecutiveFrames = 0;
+        if (voiceBtn) {
+            voiceBtn.classList.remove("is-recording");
+            voiceBtn.title = "Record a voice question";
+        }
+        if (jarvisSphere) {
+            jarvisSphere.stopStream();
+        }
+    }
+
+    function setupVAD(stream) {
+        try {
+            const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+            if (!AudioCtxClass) return;
+            if (!jarvisSphere.audioCtx) jarvisSphere.audioCtx = new AudioCtxClass();
+            const ctx = jarvisSphere.audioCtx;
+            if (ctx.state === "suspended") ctx.resume();
+
+            if (vadSource) {
+                try { vadSource.disconnect(); } catch (e) {}
+                vadSource = null;
+            }
+
+            vadAnalyser = ctx.createAnalyser();
+            vadAnalyser.fftSize = 256;
+            vadAnalyser.smoothingTimeConstant = 0.5;
+            vadDataArray = new Uint8Array(vadAnalyser.frequencyBinCount);
+
+            vadSource = ctx.createMediaStreamSource(stream);
+            vadSource.connect(vadAnalyser);
+            // DO NOT connect to destination to prevent mic feedback!
+        } catch (e) {
+            console.warn("VAD setup error:", e);
+        }
+    }
+
+    function startVADLoop() {
+        if (vadTimer) clearInterval(vadTimer);
+        hasDetectedSpeech = false;
+        speechConsecutiveFrames = 0;
+        lastSpeechTimestamp = Date.now();
+        const startTimestamp = Date.now();
+
+        vadTimer = setInterval(() => {
+            if (!recorder || recorder.state !== "recording") {
+                clearInterval(vadTimer);
+                vadTimer = null;
+                return;
+            }
+
+            if (vadAnalyser && vadDataArray) {
+                vadAnalyser.getByteFrequencyData(vadDataArray);
+                // Vocal frequency bins: ~250 Hz to ~3800 Hz - focused on human speech range
+                let sum = 0;
+                let count = 0;
+                const minBin = 3;
+                const maxBin = 45;
+                for (let i = minBin; i <= maxBin && i < vadDataArray.length; i++) {
+                    sum += vadDataArray[i];
+                    count++;
+                }
+                const avg = count > 0 ? sum / count : 0;
+                // Increased threshold to filter out background noise more aggressively
+                const SPEECH_THRESHOLD = 25;
+                // Require more consecutive frames to confirm speech (reduces false positives)
+                const SPEECH_FRAME_THRESHOLD = 4;
+
+                if (avg > SPEECH_THRESHOLD) {
+                    speechConsecutiveFrames++;
+                    if (speechConsecutiveFrames >= SPEECH_FRAME_THRESHOLD) {
+                        hasDetectedSpeech = true;
+                        lastSpeechTimestamp = Date.now();
+                        if (voiceModeStatus) {
+                            voiceModeStatus.textContent = "Listening... I'm hearing you";
+                        }
+                    }
+                } else {
+                    speechConsecutiveFrames = 0;
+                    if (hasDetectedSpeech) {
+                        const silenceDuration = Date.now() - lastSpeechTimestamp;
+                        const totalDuration = Date.now() - startTimestamp;
+                        // Minimum speech duration 500ms, faster pause detection 800ms for quicker responses
+                        if (totalDuration > 500 && silenceDuration >= 800) {
+                            console.log("VAD: Natural pause detected (" + silenceDuration + "ms). Sending prompt...");
+                            clearInterval(vadTimer);
+                            vadTimer = null;
+                            finishRecordingAndSubmit();
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // Safety limit: if continuous talking exceeds 32 seconds, submit
+            if (Date.now() - startTimestamp > 32000) {
+                console.log("VAD: Max recording length reached. Submitting...");
+                clearInterval(vadTimer);
+                vadTimer = null;
+                finishRecordingAndSubmit();
+            }
+        }, 60);
+    }
+
+    function finishRecordingAndSubmit() {
+        if (!recorder || recorder.state !== "recording") return;
+        if (vadTimer) {
+            clearInterval(vadTimer);
+            vadTimer = null;
+        }
+        playVoiceChime("done");
+        isProcessingSpeech = true;
+        if (jarvisSphere) jarvisSphere.setState("thinking");
+        if (voiceModeStatus) voiceModeStatus.textContent = "Thinking...";
+        try {
+            recorder.stop();
+        } catch (e) {
+            console.warn("finishRecordingAndSubmit stop error:", e);
+        }
+    }
+
+    async function startVoiceListening() {
+        if (!voiceModeActive) return;
+        if (isProcessingSpeech) return;
+        if (recorder && recorder.state === "recording") return;
+
+        cleanupVoiceRecording();
+
+        if (!navigator.mediaDevices || !window.MediaRecorder) {
+            setVoiceModeStatus("Voice recording is not supported by this browser.", true);
+            return;
+        }
+
+        try {
+            // Reuse active stream if tracks are live for low-latency hands-free looping
+            let stream = vadStream;
+            const isStreamValid = stream && stream.getTracks().some(t => t.readyState === "live");
+            if (!isStreamValid) {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
+                vadStream = stream;
+            }
+
+            recordingChunks = [];
+            recordingStartTime = Date.now();
+
+            setupVAD(stream);
+
+            if (jarvisSphere) {
+                jarvisSphere.setState("listening");
+                jarvisSphere.setStream(stream);
+            }
+
+            playVoiceChime("start");
+
+            if (voiceModeStatus) {
+                voiceModeStatus.textContent = "Listening... Speak naturally";
+                voiceModeStatus.hidden = false;
+            }
+
+            let mimeType = "audio/webm;codecs=opus";
+            if (!MediaRecorder.isTypeSupported(mimeType)) {
+                mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
+            }
+
+            recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+
+            recordingTimer = setInterval(() => {
+                const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+                const minutes = Math.floor(elapsed / 60);
+                const seconds = elapsed % 60;
+                const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                if (voiceBtn) voiceBtn.title = `Listening… ${timeStr}`;
+                if (voiceModeStatus && !hasDetectedSpeech) {
+                    voiceModeStatus.textContent = `Listening... ${timeStr}`;
+                }
+            }, 1000);
+
+            recorder.ondataavailable = (event) => {
+                if (event.data && event.data.size > 0) {
+                    recordingChunks.push(event.data);
+                }
+            };
+
+            recorder.onstop = async () => {
+                if (recordingTimer) {
+                    clearInterval(recordingTimer);
+                    recordingTimer = null;
+                }
+                if (jarvisSphere) {
+                    jarvisSphere.stopStream();
+                    jarvisSphere.setState("thinking");
+                }
+                if (voiceModeStatus) {
+                    voiceModeStatus.textContent = "Thinking...";
+                }
+                if (voiceBtn) {
+                    voiceBtn.classList.remove("is-recording");
+                    voiceBtn.disabled = true;
+                }
+
+                try {
+                    const blob = new Blob(recordingChunks, { type: recorder ? recorder.mimeType : "audio/webm" });
+                    
+                    // If user tapped immediately without saying anything or silence
+                    if (blob.size < 250 || !hasDetectedSpeech) {
+                        console.log("No speech detected. Re-arming listening loop...");
+                        isProcessingSpeech = false;
+                        if (voiceModeActive) {
+                            if (voiceModeStatus) voiceModeStatus.textContent = "Listening... Speak naturally";
+                            if (jarvisSphere) jarvisSphere.setState("listening");
+                            // Immediate re-listening for faster response
+                            setTimeout(() => {
+                                if (voiceModeActive && !isProcessingSpeech && (!recorder || recorder.state !== "recording")) {
+                                    startVoiceListening();
+                                }
+                            }, 100);
+                        } else {
+                            if (jarvisSphere) jarvisSphere.setState("idle");
+                        }
+                        return;
+                    }
+
+                    const formData = new FormData();
+                    formData.append("audio", blob, "voice-question.webm");
+                    const response = await fetch("/api/ai/transcribe/", { method: "POST", body: formData });
+                    const data = await response.json();
+
+                    if (!response.ok || data.error) {
+                        throw new Error(data.error || "Transcription failed.");
+                    }
+
+                    const transcribedText = (data.text || "").trim();
+                    console.log("Transcription result:", transcribedText);
+
+                    if (!transcribedText || transcribedText.length < 2) {
+                        console.log("Transcription was blank. Resuming listening...");
+                        isProcessingSpeech = false;
+                        if (voiceModeActive) {
+                            if (voiceModeStatus) voiceModeStatus.textContent = "Didn't catch that. Listening...";
+                            // Faster retry for immediate response
+                            setTimeout(() => {
+                                if (voiceModeActive && !isProcessingSpeech && (!recorder || recorder.state !== "recording")) {
+                                    startVoiceListening();
+                                }
+                            }, 150);
+                        }
+                        return;
+                    }
+
+                    // Keep voice screen clean like ChatGPT voice chat (no text display)
+                    const transcriptEl = document.getElementById("brain-voice-transcript");
+                    if (transcriptEl) {
+                        transcriptEl.hidden = true;
+                    }
+
+                    await send(transcribedText, true);
+
+                } catch (error) {
+                    console.error("Voice processing error:", error);
+                    isProcessingSpeech = false;
+                    if (jarvisSphere) jarvisSphere.setState("idle");
+                    setVoiceModeStatus(error.message || "Could not transcribe audio.", true);
+                    if (voiceModeActive) {
+                        // Faster error recovery
+                        setTimeout(() => {
+                            if (voiceModeActive && !isProcessingSpeech && (!recorder || recorder.state !== "recording")) {
+                                startVoiceListening();
+                            }
+                        }, 500);
+                    }
+                } finally {
+                    if (voiceBtn) voiceBtn.disabled = false;
+                    isProcessingSpeech = false;
+                }
+            };
+
+            recorder.start(250);
+            if (voiceBtn) voiceBtn.classList.add("is-recording");
+            startVADLoop();
+
+        } catch (error) {
+            console.error("Voice listening initialization error:", error);
+            if (jarvisSphere) jarvisSphere.setState("idle");
+            setVoiceModeStatus("Microphone access was denied or unavailable.", true);
+        }
+    }
+
     function enterVoiceMode() {
         voiceModeActive = true;
+        isProcessingSpeech = false;
         panel.classList.add("voice-mode-open");
         voiceMode.hidden = false;
-        
-        // Show voice mode instructions
-        if (voiceModeStatus) {
-            voiceModeStatus.textContent = "Voice Assistant Active - Click to speak, click again to stop";
-            voiceModeStatus.hidden = false;
-        }
         
         if (typeof window !== "undefined" && window.speechSynthesis) {
             try { window.speechSynthesis.resume(); } catch (e) {}
         }
         if (jarvisSphere) {
             jarvisSphere.start();
-            jarvisSphere.setState("idle");
+            jarvisSphere.setState("listening");
         }
-        setVoiceModeStatus("");
+        if (voiceModeStatus) {
+            voiceModeStatus.textContent = "Connecting microphone...";
+            voiceModeStatus.hidden = false;
+        }
+
+        // Immediate start for instant response
+        setTimeout(() => {
+            if (voiceModeActive) {
+                startVoiceListening();
+            }
+        }, 50);
     }
 
     function exitVoiceMode() {
         currentSpeechSession++;
         stopCurrentSpeech();
+        cleanupVoiceRecording();
+        if (vadStream) {
+            try {
+                vadStream.getTracks().forEach(track => track.stop());
+            } catch (e) {}
+            vadStream = null;
+        }
+        if (vadSource) {
+            try { vadSource.disconnect(); } catch (e) {}
+            vadSource = null;
+        }
         voiceModeActive = false;
+        isProcessingSpeech = false;
         panel.classList.remove("voice-mode-open");
         voiceMode.hidden = true;
+        if (voiceModeToggle) voiceModeToggle.classList.remove("is-active");
         const transcriptEl = document.getElementById("brain-voice-transcript");
         if (transcriptEl) transcriptEl.hidden = true;
         if (jarvisSphere) {
             jarvisSphere.setState("idle");
             jarvisSphere.stop();
         }
-        if (recorder && recorder.state === "recording") recorder.stop();
         setVoiceModeStatus("");
     }
 
-    async function startRecording() {
-        if (!navigator.mediaDevices || !window.MediaRecorder) {
-            setVoiceModeStatus("Voice recording is not supported by this browser.", true);
-            return;
-        }
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            recordingChunks = [];
-            recordingStartTime = Date.now();
-            recorder = new MediaRecorder(stream);
-            
-            if (jarvisSphere) {
-                jarvisSphere.setState("listening");
-                jarvisSphere.setStream(stream);
+    if (voiceBtn) {
+        voiceBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!voiceModeActive) {
+                enterVoiceMode();
+            } else {
+                // If AI is speaking -> Barge-in interruption
+                if (currentSpeechAudio || (window.speechSynthesis && window.speechSynthesis.speaking) || (jarvisSphere && jarvisSphere.state === "speaking")) {
+                    stopCurrentSpeech();
+                    startVoiceListening();
+                } else if (recorder && recorder.state === "recording") {
+                    finishRecordingAndSubmit();
+                } else {
+                    startVoiceListening();
+                }
             }
-            
-            // Show listening status
-            if (voiceModeStatus) {
-                voiceModeStatus.textContent = "Listening... Speak now";
-                voiceModeStatus.hidden = false;
-            }
-
-            // Recording timer for button tooltip
-            recordingTimer = setInterval(() => {
-                const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
-                const minutes = Math.floor(elapsed / 60);
-                const seconds = elapsed % 60;
-                if (voiceBtn) voiceBtn.title = `Listening… ${minutes}:${seconds.toString().padStart(2, '0')}`;
-                if (voiceModeStatus) {
-                    voiceModeStatus.textContent = `Listening... ${minutes}:${seconds.toString().padStart(2, '0')}`;
-                }
-            }, 1000);
-            
-            recorder.ondataavailable = (event) => {
-                if (event.data.size) recordingChunks.push(event.data);
-            };
-            recorder.onstop = async () => {
-                clearInterval(recordingTimer);
-                stream.getTracks().forEach((track) => track.stop());
-                if (jarvisSphere) {
-                    jarvisSphere.stopStream();
-                    jarvisSphere.setState("thinking");
-                }
-                
-                // Show processing status
-                if (voiceModeStatus) {
-                    voiceModeStatus.textContent = "Processing your voice...";
-                }
-                
-                voiceBtn.classList.remove("is-recording");
-                voiceBtn.disabled = true;
-                try {
-                    const blob = new Blob(recordingChunks, { type: recorder.mimeType || "audio/webm" });
-                    const formData = new FormData();
-                    formData.append("audio", blob, "voice-question.webm");
-                    const response = await fetch("/api/ai/transcribe/", { method: "POST", body: formData });
-                    const data = await response.json();
-                    if (!response.ok || data.error) throw new Error(data.error || "Transcription failed.");
-                    console.log("Transcription successful:", data.text);
-                    console.log("About to call send with voiceReply=true");
-                    // ChatGPT-style: when using voice input, AI responds with voice automatically using Gemini
-                    await send(data.text, true); // Enable voice reply for voice input (uses Gemini)
-                    console.log("Send completed");
-                    
-                    // Show ready status for next interaction
-                    if (voiceModeStatus) {
-                        voiceModeStatus.textContent = "Voice Assistant Ready - Click to speak again";
-                    }
-                } catch (error) {
-                    console.error("Transcription error:", error);
-                    if (jarvisSphere) jarvisSphere.setState("idle");
-                    setVoiceModeStatus(error.message || "Could not transcribe the recording.", true);
-                } finally {
-                    voiceBtn.disabled = false;
-                }
-            };
-            recorder.start();
-            voiceBtn.classList.add("is-recording");
-        } catch (error) {
-            if (jarvisSphere) jarvisSphere.setState("idle");
-            setVoiceModeStatus("Microphone access was denied or unavailable.", true);
-        }
+        });
     }
 
-    if (voiceBtn) voiceBtn.addEventListener("click", () => {
-        // Voice assistant mode: click to open voice sphere for direct AI voice interaction
-        if (voiceModeActive) {
-            // Already in voice mode, start/stop recording
-            if (recorder && recorder.state === "recording") {
-                recorder.stop();
+    // Voice mode toggle button for ChatGPT-like voice conversation
+    if (voiceModeToggle) {
+        voiceModeToggle.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!voiceModeActive) {
+                enterVoiceMode();
+                voiceModeToggle.classList.add("is-active");
             } else {
-                // Stop any current speech and start recording
-                if (window.speechSynthesis && window.speechSynthesis.speaking) {
-                    window.speechSynthesis.cancel();
-                    if (jarvisSphere) jarvisSphere.setState("idle");
-                }
-                startRecording();
+                exitVoiceMode();
+                voiceModeToggle.classList.remove("is-active");
             }
-        } else {
-            // Enter voice assistant mode
-            enterVoiceMode();
-            // Auto-start recording for immediate voice interaction
-            setTimeout(() => {
-                if (jarvisSphere) {
-                    jarvisSphere.start();
-                    jarvisSphere.setState("idle");
-                }
-                startRecording();
-            }, 300);
-        }
-    });
+        });
+    }
 
     if (voiceOrbContainer) {
         voiceOrbContainer.addEventListener("click", () => {
-            // Voice assistant mode: start/stop recording for direct AI voice interaction
-            if (recorder && recorder.state === "recording") {
-                recorder.stop();
-            } else {
-                stopCurrentSpeech();
-                if (!voiceModeActive) {
-                    enterVoiceMode();
-                }
-                startRecording();
+            if (!voiceModeActive) {
+                enterVoiceMode();
+                return;
             }
+
+            // 1. Barge-in / Interrupt AI speech immediately
+            if (currentSpeechAudio || (window.speechSynthesis && window.speechSynthesis.speaking) || (jarvisSphere && jarvisSphere.state === "speaking")) {
+                console.log("Barge-in: Interrupting AI speech...");
+                stopCurrentSpeech();
+                setTimeout(() => {
+                    startVoiceListening();
+                }, 100);
+                return;
+            }
+
+            // 2. While listening/speaking: tap to submit immediately
+            if (recorder && recorder.state === "recording") {
+                if (hasDetectedSpeech) {
+                    console.log("Tap to send immediately without waiting for silence timer...");
+                    finishRecordingAndSubmit();
+                } else {
+                    console.log("Tap to reset listening...");
+                    cleanupVoiceRecording();
+                    startVoiceListening();
+                }
+                return;
+            }
+
+            // 3. If currently processing / thinking, ignore tap
+            if (isProcessingSpeech) {
+                return;
+            }
+
+            // 4. Otherwise start listening
+            startVoiceListening();
         });
         
         voiceOrbContainer.addEventListener("keydown", (e) => {

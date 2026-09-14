@@ -1,0 +1,1157 @@
+{% extends "dashboard/base.html" %}
+{% load static %}
+{% block title %}User Dashboard & Profile - Moneybots{% endblock %}
+
+{% block content %}
+<div class="profile-dashboard-container">
+    <!-- Header banner -->
+    <div class="profile-header-card">
+        <div class="profile-header-main">
+            <div class="profile-avatar">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+            </div>
+            <div class="profile-meta">
+                <div class="profile-badge-row">
+                    <span class="user-tier-badge">TRADER ACCOUNT</span>
+                    <span class="alerts-status-pill {% if profile.email_alerts_enabled %}pill-active{% else %}pill-paused{% endif %}" id="header-alert-pill">
+                        <span class="status-dot"></span>
+                        <span id="header-alert-status-text">{% if profile.email_alerts_enabled %}Alerts Active{% else %}Alerts Paused{% endif %}</span>
+                    </span>
+                </div>
+                <h1 class="profile-email">{{ user.email }}</h1>
+                <p class="profile-joined">Member since {{ user.date_joined|date:"F Y"|default:"Recently" }} &bull; Custom alerts delivered to your inbox</p>
+            </div>
+        </div>
+
+        <!-- Metric Stat Cards -->
+        <div class="profile-stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Starred Favorites</div>
+                <div class="stat-value" id="stat-favs-count">{{ favorites|length }}</div>
+                <div class="stat-sub">of {{ total_markets_count }} total markets</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Min Quality Score</div>
+                <div class="stat-value" id="stat-quality-val">{{ profile.alert_min_quality }}%</div>
+                <div class="stat-sub">Email alert threshold</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Alert Direction</div>
+                <div class="stat-value" id="stat-direction-val" style="font-size: 16px; text-transform: capitalize;">
+                    {% if profile.alert_directions == 'all' %}All Signals{% elif profile.alert_directions == 'Buy' %}Buy Only{% else %}Sell Only{% endif %}
+                </div>
+                <div class="stat-sub">Filtering trade bias</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Alert Scope</div>
+                <div class="stat-value" id="stat-scope-val" style="font-size: 16px;">
+                    {% if profile.alert_favorites_only %}Favorites Only{% else %}All Markets{% endif %}
+                </div>
+                <div class="stat-sub">Monitored universe</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main 2-Column Section: Left = Favorites Tracker, Right = Personalized Alerts -->
+    <div class="profile-main-grid">
+        <!-- LEFT COLUMN: FAVORITES TRACKER -->
+        <div class="profile-card favorites-section">
+            <div class="card-header-bar">
+                <div class="card-title-group">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="#ff6a00" stroke="#ff6a00" stroke-width="1.5">
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                    </svg>
+                    <h2>My Favorite Markets</h2>
+                </div>
+                <span class="badge-count" id="badge-fav-count">{{ favorites|length }} Starred</span>
+            </div>
+
+            <p class="card-desc">Personalize the markets you track. Starred markets appear in your live watch card and can trigger focused email alerts.</p>
+
+            <!-- Starred Markets Cards -->
+            <div class="favorites-grid" id="favorites-cards-container">
+                {% if favorite_signals %}
+                    {% for item in favorite_signals %}
+                    <div class="favorite-item-card" data-symbol="{{ item.symbol }}" id="fav-card-{{ item.symbol }}">
+                        <div class="fav-card-header">
+                            <div>
+                                <span class="fav-market-name">{{ item.name }}</span>
+                                <span class="fav-market-sym">{{ item.symbol }}</span>
+                            </div>
+                            <button type="button" class="btn-star-toggle active" onclick="toggleFavorite('{{ item.symbol }}')" title="Remove from favorites">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="#ff6a00" stroke="#ff6a00" stroke-width="2">
+                                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                                </svg>
+                            </button>
+                        </div>
+
+                        {% if item.signal %}
+                        <div class="fav-signal-row">
+                            <span class="signal-badge badge-{{ item.signal.direction|lower }}">{{ item.signal.direction|upper }}</span>
+                            <span class="signal-quality">Quality <strong>{{ item.signal.setup_quality|floatformat:0 }}%</strong></span>
+                            <span class="signal-price">Price: <strong>{{ item.signal.price|floatformat:4 }}</strong></span>
+                        </div>
+                        <div class="fav-sub-info">
+                            <span>RSI: {{ item.signal.rsi|default:"--" }}</span>
+                            <span>R:R: {% if item.signal.risk_reward %}1:{{ item.signal.risk_reward|floatformat:1 }}{% else %}--{% endif %}</span>
+                            <span>{{ item.signal.timeframe }}</span>
+                        </div>
+                        {% else %}
+                        <div class="fav-no-signal">
+                            <span>Monitoring market &bull; Awaiting setup</span>
+                        </div>
+                        {% endif %}
+
+                        <div class="fav-card-actions">
+                            <a href="/?symbol={{ item.symbol }}" class="btn-chart-shortcut">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="18" y1="20" x2="18" y2="10"></line>
+                                    <line x1="12" y1="20" x2="12" y2="4"></line>
+                                    <line x1="6" y1="20" x2="6" y2="14"></line>
+                                </svg>
+                                Open in Chart
+                            </a>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="empty-favorites-box" id="empty-fav-message">
+                        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5">
+                            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                        </svg>
+                        <p>No markets favorited yet. Pick from the catalog below to start tracking!</p>
+                    </div>
+                {% endif %}
+            </div>
+
+            <!-- MARKET CATALOG PICKER -->
+            <div class="catalog-section">
+                <h3 class="catalog-section-title">Add / Remove Markets by Asset Class</h3>
+                <div class="catalog-tabs">
+                    <button class="catalog-tab-btn active" onclick="switchCatalogTab('forex', this)">Forex</button>
+                    <button class="catalog-tab-btn" onclick="switchCatalogTab('commodities', this)">Commodities</button>
+                    <button class="catalog-tab-btn" onclick="switchCatalogTab('crypto', this)">Crypto</button>
+                    <button class="catalog-tab-btn" onclick="switchCatalogTab('synthetic', this)">Synthetics</button>
+                </div>
+
+                <!-- Forex Tab -->
+                <div class="catalog-pill-grid" id="cat-tab-forex">
+                    {% for m in categorized_markets.forex %}
+                    <button type="button" class="market-pill {% if m.is_fav %}is-favorited{% endif %}" id="pill-{{ m.symbol }}" onclick="toggleFavorite('{{ m.symbol }}')">
+                        <span class="pill-star">★</span>
+                        <span class="pill-name">{{ m.name }}</span>
+                        <span class="pill-sym">{{ m.symbol }}</span>
+                    </button>
+                    {% endfor %}
+                </div>
+
+                <!-- Commodities Tab -->
+                <div class="catalog-pill-grid" id="cat-tab-commodities" style="display: none;">
+                    {% for m in categorized_markets.commodities %}
+                    <button type="button" class="market-pill {% if m.is_fav %}is-favorited{% endif %}" id="pill-{{ m.symbol }}" onclick="toggleFavorite('{{ m.symbol }}')">
+                        <span class="pill-star">★</span>
+                        <span class="pill-name">{{ m.name }}</span>
+                        <span class="pill-sym">{{ m.symbol }}</span>
+                    </button>
+                    {% endfor %}
+                </div>
+
+                <!-- Crypto Tab -->
+                <div class="catalog-pill-grid" id="cat-tab-crypto" style="display: none;">
+                    {% for m in categorized_markets.crypto %}
+                    <button type="button" class="market-pill {% if m.is_fav %}is-favorited{% endif %}" id="pill-{{ m.symbol }}" onclick="toggleFavorite('{{ m.symbol }}')">
+                        <span class="pill-star">★</span>
+                        <span class="pill-name">{{ m.name }}</span>
+                        <span class="pill-sym">{{ m.symbol }}</span>
+                    </button>
+                    {% endfor %}
+                </div>
+
+                <!-- Synthetic Tab -->
+                <div class="catalog-pill-grid" id="cat-tab-synthetic" style="display: none;">
+                    {% for m in categorized_markets.synthetic %}
+                    <button type="button" class="market-pill {% if m.is_fav %}is-favorited{% endif %}" id="pill-{{ m.symbol }}" onclick="toggleFavorite('{{ m.symbol }}')">
+                        <span class="pill-star">★</span>
+                        <span class="pill-name">{{ m.name }}</span>
+                        <span class="pill-sym">{{ m.symbol }}</span>
+                    </button>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT COLUMN: PERSONALIZED ANALYSIS & EMAIL ALERTS -->
+        <div class="profile-card alerts-section">
+            <div class="card-header-bar">
+                <div class="card-title-group">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ff6a00" stroke-width="2">
+                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                        <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                    </svg>
+                    <h2>Personalized Analysis Alerts</h2>
+                </div>
+                <span class="badge-count" style="background: rgba(255, 106, 0, 0.1); color: #ff6a00;">Email System</span>
+            </div>
+
+            <p class="card-desc">Configure your personal trading criteria. When Moneybots' algorithmic analysis detects a qualifying trade opportunity, an alert is sent directly to your registered email address.</p>
+
+            <form id="alerts-config-form" onsubmit="saveAlertPreferences(event)">
+                <!-- Master Toggle -->
+                <div class="config-row-toggle">
+                    <div>
+                        <div class="config-label">Email Trade Alerts</div>
+                        <div class="config-sublabel">Dispatch high-probability setups to <strong>{{ user.email }}</strong></div>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="pref-email-enabled" {% if profile.email_alerts_enabled %}checked{% endif %}>
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+
+                <!-- Scope: Favorites vs All -->
+                <div class="config-row">
+                    <label class="config-label" for="pref-favorites-only">Alert Scope</label>
+                    <div class="config-sublabel">Choose whether alerts cover all markets or only your starred favorites.</div>
+                    <select id="pref-favorites-only" class="select-control">
+                        <option value="false" {% if not profile.alert_favorites_only %}selected{% endif %}>All Scanned Markets (Full Universe)</option>
+                        <option value="true" {% if profile.alert_favorites_only %}selected{% endif %}>Starred Favorites Only (Focused Watchlist)</option>
+                    </select>
+                </div>
+
+                <!-- Min Quality Threshold -->
+                <div class="config-row">
+                    <div class="config-label-with-value">
+                        <label class="config-label" for="pref-min-quality">Minimum Setup Quality</label>
+                        <span class="range-val-badge" id="quality-display-badge">{{ profile.alert_min_quality }}%</span>
+                    </div>
+                    <div class="config-sublabel">Ignore lower-confidence setups. Higher scores mean fewer, stronger setups.</div>
+                    <input type="range" id="pref-min-quality" min="50" max="95" step="5" value="{{ profile.alert_min_quality }}" class="range-control" oninput="document.getElementById('quality-display-badge').textContent = this.value + '%'">
+                    <div class="range-scale">
+                        <span>50% (More alerts)</span>
+                        <span>70% (Balanced)</span>
+                        <span>95% (Elite only)</span>
+                    </div>
+                </div>
+
+                <!-- Direction Filter -->
+                <div class="config-row">
+                    <label class="config-label" for="pref-directions">Signal Direction Filter</label>
+                    <div class="config-sublabel">Filter signals based on your current market bias.</div>
+                    <select id="pref-directions" class="select-control">
+                        <option value="all" {% if profile.alert_directions == 'all' %}selected{% endif %}>All Directions (Buy & Sell)</option>
+                        <option value="Buy" {% if profile.alert_directions == 'Buy' %}selected{% endif %}>Buy Signals Only (Long)</option>
+                        <option value="Sell" {% if profile.alert_directions == 'Sell' %}selected{% endif %}>Sell Signals Only (Short)</option>
+                    </select>
+                </div>
+
+                <!-- Timeframe Filter -->
+                <div class="config-row">
+                    <label class="config-label" for="pref-timeframe">Preferred Timeframe</label>
+                    <div class="config-sublabel">Match alerts to your trading style.</div>
+                    <select id="pref-timeframe" class="select-control">
+                        <option value="all" {% if profile.alert_timeframe == 'all' %}selected{% endif %}>All Timeframes (1H, 4H, 1D)</option>
+                        <option value="1H" {% if profile.alert_timeframe == '1H' %}selected{% endif %}>1-Hour Charts (Intraday)</option>
+                        <option value="4H" {% if profile.alert_timeframe == '4H' %}selected{% endif %}>4-Hour Charts (Swing)</option>
+                        <option value="1D" {% if profile.alert_timeframe == '1D' %}selected{% endif %}>Daily Charts (Position)</option>
+                    </select>
+                </div>
+
+                <!-- Action buttons -->
+                <div class="alerts-form-actions">
+                    <button type="submit" class="btn-save-prefs" id="btn-save-prefs">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                        <span>Save Preferences</span>
+                    </button>
+
+                    <button type="button" class="btn-test-alert" id="btn-test-alert" onclick="sendTestAlert()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="22" y1="2" x2="11" y2="13"></line>
+                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                        </svg>
+                        <span>Send Test Alert to Email</span>
+                    </button>
+                </div>
+
+                <!-- Response message toast / status -->
+                <div class="status-msg-banner" id="alert-status-msg" style="display: none;"></div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<style>
+.profile-dashboard-container {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 24px 16px 64px;
+    font-family: var(--font-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+    color: var(--text, #1a1d23);
+}
+
+/* Header Card */
+.profile-header-card {
+    background: #ffffff;
+    border: 1px solid var(--border, #dfe3e8);
+    border-radius: 16px;
+    padding: 28px;
+    margin-bottom: 24px;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
+}
+
+.profile-header-main {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    margin-bottom: 24px;
+}
+
+.profile-avatar {
+    width: 68px;
+    height: 68px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgba(255, 106, 0, 0.15) 0%, rgba(255, 140, 0, 0.25) 100%);
+    color: #ff6a00;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border: 2px solid rgba(255, 106, 0, 0.3);
+}
+
+.profile-badge-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+
+.user-tier-badge {
+    background: #0f172a;
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    padding: 3px 8px;
+    border-radius: 6px;
+}
+
+.alerts-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 9999px;
+}
+
+.pill-active {
+    background: #ecfdf5;
+    color: #059669;
+    border: 1px solid #a7f3d0;
+}
+
+.pill-active .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #10b981;
+    box-shadow: 0 0 6px #10b981;
+}
+
+.pill-paused {
+    background: #fef2f2;
+    color: #dc2626;
+    border: 1px solid #fecaca;
+}
+
+.pill-paused .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #ef4444;
+}
+
+.profile-email {
+    font-size: 22px;
+    font-weight: 700;
+    margin: 0 0 4px;
+    color: #0f172a;
+}
+
+.profile-joined {
+    font-size: 13px;
+    color: #64748b;
+    margin: 0;
+}
+
+.profile-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    border-top: 1px solid #f1f5f9;
+    padding-top: 20px;
+}
+
+.stat-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 14px 16px;
+}
+
+.stat-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.stat-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 2px;
+}
+
+.stat-sub {
+    font-size: 11px;
+    color: #94a3b8;
+}
+
+/* Main 2-Col Grid */
+.profile-main-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+}
+
+.profile-card {
+    background: #ffffff;
+    border: 1px solid var(--border, #dfe3e8);
+    border-radius: 16px;
+    padding: 26px;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
+}
+
+.card-header-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.card-title-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.card-title-group h2 {
+    font-size: 18px;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0;
+}
+
+.badge-count {
+    font-size: 12px;
+    font-weight: 600;
+    background: #f1f5f9;
+    color: #475569;
+    padding: 3px 10px;
+    border-radius: 9999px;
+}
+
+.card-desc {
+    font-size: 13px;
+    color: #64748b;
+    line-height: 1.5;
+    margin: 0 0 20px;
+}
+
+/* Favorites Grid */
+.favorites-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 24px;
+    max-height: 480px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.favorite-item-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 14px;
+    transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.favorite-item-card:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.fav-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.fav-market-name {
+    display: block;
+    font-weight: 700;
+    font-size: 14px;
+    color: #0f172a;
+}
+
+.fav-market-sym {
+    display: block;
+    font-size: 11px;
+    color: #64748b;
+    font-family: monospace;
+}
+
+.btn-star-toggle {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.15s;
+}
+
+.btn-star-toggle:hover {
+    transform: scale(1.15);
+}
+
+.fav-signal-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+}
+
+.signal-badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+}
+
+.badge-buy {
+    background: #ecfdf5;
+    color: #059669;
+    border: 1px solid #a7f3d0;
+}
+
+.badge-sell {
+    background: #fef2f2;
+    color: #dc2626;
+    border: 1px solid #fecaca;
+}
+
+.badge-neutral {
+    background: #f1f5f9;
+    color: #475569;
+}
+
+.signal-quality {
+    font-size: 12px;
+    color: #475569;
+}
+
+.signal-quality strong {
+    color: #ff6a00;
+}
+
+.signal-price {
+    font-size: 11px;
+    color: #64748b;
+}
+
+.fav-sub-info {
+    display: flex;
+    gap: 10px;
+    font-size: 11px;
+    color: #64748b;
+    margin-bottom: 12px;
+}
+
+.fav-no-signal {
+    font-size: 12px;
+    color: #94a3b8;
+    padding: 12px 0;
+    text-align: center;
+}
+
+.fav-card-actions {
+    border-top: 1px solid #f1f5f9;
+    padding-top: 10px;
+    margin-top: auto;
+}
+
+.btn-chart-shortcut {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #ff6a00;
+    text-decoration: none;
+    transition: color 0.15s;
+}
+
+.btn-chart-shortcut:hover {
+    color: #e55f00;
+    text-decoration: underline;
+}
+
+.empty-favorites-box {
+    grid-column: 1 / -1;
+    background: #f8fafc;
+    border: 1.5px dashed #cbd5e1;
+    border-radius: 12px;
+    padding: 32px 16px;
+    text-align: center;
+    color: #64748b;
+}
+
+.empty-favorites-box p {
+    margin: 12px 0 0;
+    font-size: 13px;
+}
+
+/* Catalog Picker */
+.catalog-section {
+    border-top: 1px solid #f1f5f9;
+    padding-top: 20px;
+}
+
+.catalog-section-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0 0 12px;
+}
+
+.catalog-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+
+.catalog-tab-btn {
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    color: #475569;
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.catalog-tab-btn:hover {
+    background: #e2e8f0;
+    color: #0f172a;
+}
+
+.catalog-tab-btn.active {
+    background: #ff6a00;
+    border-color: #ff6a00;
+    color: #ffffff;
+}
+
+.catalog-pill-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.market-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #ffffff;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    color: #334155;
+}
+
+.market-pill .pill-star {
+    color: #cbd5e1;
+    font-size: 13px;
+}
+
+.market-pill .pill-name {
+    font-weight: 600;
+}
+
+.market-pill .pill-sym {
+    color: #94a3b8;
+    font-size: 10px;
+    font-family: monospace;
+}
+
+.market-pill:hover {
+    border-color: #ff6a00;
+    background: #fff7ed;
+}
+
+.market-pill.is-favorited {
+    border-color: #ff6a00;
+    background: #fff7ed;
+    color: #c2410c;
+}
+
+.market-pill.is-favorited .pill-star {
+    color: #ff6a00;
+}
+
+/* Alerts Configuration Form */
+.config-row-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 20px;
+}
+
+.config-row {
+    margin-bottom: 20px;
+}
+
+.config-label {
+    display: block;
+    font-size: 13px;
+    font-weight: 700;
+    color: #1e293b;
+    margin-bottom: 4px;
+}
+
+.config-label-with-value {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.range-val-badge {
+    background: #ff6a00;
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 6px;
+}
+
+.config-sublabel {
+    font-size: 12px;
+    color: #64748b;
+    margin-bottom: 8px;
+    line-height: 1.4;
+}
+
+.select-control {
+    width: 100%;
+    padding: 10px 14px;
+    background: #ffffff;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 10px;
+    font-size: 13px;
+    color: #0f172a;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    outline: none;
+}
+
+.select-control:focus {
+    border-color: #ff6a00;
+    box-shadow: 0 0 0 3px rgba(255, 106, 0, 0.15);
+}
+
+.range-control {
+    width: 100%;
+    accent-color: #ff6a00;
+    cursor: pointer;
+}
+
+.range-scale {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: #94a3b8;
+    margin-top: 4px;
+}
+
+/* Switch */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 48px;
+    height: 26px;
+    flex-shrink: 0;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #cbd5e1;
+    transition: .3s;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 4px;
+    bottom: 4px;
+    background-color: white;
+    transition: .3s;
+}
+
+input:checked + .slider {
+    background-color: #ff6a00;
+}
+
+input:checked + .slider:before {
+    transform: translateX(22px);
+}
+
+.slider.round {
+    border-radius: 34px;
+}
+
+.slider.round:before {
+    border-radius: 50%;
+}
+
+/* Form Action Buttons */
+.alerts-form-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 26px;
+}
+
+.btn-save-prefs {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: linear-gradient(135deg, #ff6a00 0%, #ff8c00 100%);
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 12px 18px;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(255, 106, 0, 0.25);
+    transition: all 0.2s ease;
+}
+
+.btn-save-prefs:hover {
+    background: linear-gradient(135deg, #f06400 0%, #ff8300 100%);
+    box-shadow: 0 6px 16px rgba(255, 106, 0, 0.35);
+    transform: translateY(-1px);
+}
+
+.btn-test-alert {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: #ffffff;
+    border: 1.5px solid #cbd5e1;
+    color: #1e293b;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 12px 18px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-test-alert:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+}
+
+.status-msg-banner {
+    margin-top: 18px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+.status-msg-success {
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    color: #065f46;
+}
+
+.status-msg-error {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+}
+
+/* Responsiveness */
+@media (max-width: 960px) {
+    .profile-main-grid {
+        grid-template-columns: 1fr;
+    }
+    .profile-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 640px) {
+    .favorites-grid {
+        grid-template-columns: 1fr;
+    }
+    .profile-stats-grid {
+        grid-template-columns: 1fr;
+    }
+    .profile-header-main {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 14px;
+    }
+    .alerts-form-actions {
+        flex-direction: column;
+    }
+}
+</style>
+
+<script>
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+function switchCatalogTab(tabName, btn) {
+    document.querySelectorAll('.catalog-tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    
+    ['forex', 'commodities', 'crypto', 'synthetic'].forEach(name => {
+        const el = document.getElementById('cat-tab-' + name);
+        if (el) el.style.display = (name === tabName) ? 'flex' : 'none';
+    });
+}
+
+async function toggleFavorite(symbol) {
+    try {
+        const res = await fetch('/api/profile/favorite/toggle/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken'),
+            },
+            body: JSON.stringify({ symbol: symbol })
+        });
+        const data = await res.json();
+        if (data.success) {
+            // Update catalog pill
+            const pill = document.getElementById('pill-' + symbol);
+            if (pill) {
+                if (data.is_favorite) {
+                    pill.classList.add('is-favorited');
+                } else {
+                    pill.classList.remove('is-favorited');
+                }
+            }
+
+            // Update header count and stat
+            const count = data.favorites.length;
+            document.getElementById('stat-favs-count').textContent = count;
+            document.getElementById('badge-fav-count').textContent = count + ' Starred';
+
+            // If unstarred and card exists, smoothly animate out
+            const card = document.getElementById('fav-card-' + symbol);
+            if (!data.is_favorite && card) {
+                card.style.opacity = '0';
+                card.style.transform = 'scale(0.95)';
+                setTimeout(() => {
+                    card.remove();
+                    if (count === 0) {
+                        const container = document.getElementById('favorites-cards-container');
+                        if (container && !document.getElementById('empty-fav-message')) {
+                            container.innerHTML = `
+                                <div class="empty-favorites-box" id="empty-fav-message">
+                                    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5">
+                                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                                    </svg>
+                                    <p>No markets favorited yet. Pick from the catalog below to start tracking!</p>
+                                </div>
+                            `;
+                        }
+                    }
+                }, 200);
+            } else if (data.is_favorite && !card) {
+                // Reload section or refresh softly
+                window.location.reload();
+            }
+        }
+    } catch (err) {
+        console.error('Failed to toggle favorite:', err);
+    }
+}
+
+async function saveAlertPreferences(event) {
+    event.preventDefault();
+    const btn = document.getElementById('btn-save-prefs');
+    const statusMsg = document.getElementById('alert-status-msg');
+    const originalText = btn.innerHTML;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span>Saving...</span>';
+
+    const payload = {
+        email_alerts_enabled: document.getElementById('pref-email-enabled').checked,
+        alert_favorites_only: document.getElementById('pref-favorites-only').value === 'true',
+        alert_min_quality: parseInt(document.getElementById('pref-min-quality').value, 10),
+        alert_directions: document.getElementById('pref-directions').value,
+        alert_timeframe: document.getElementById('pref-timeframe').value,
+    };
+
+    try {
+        const res = await fetch('/api/profile/alerts/update/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken'),
+            },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        
+        statusMsg.style.display = 'block';
+        if (data.success) {
+            statusMsg.className = 'status-msg-banner status-msg-success';
+            statusMsg.textContent = '✓ ' + data.message;
+            
+            // Update UI stat cards
+            document.getElementById('stat-quality-val').textContent = payload.alert_min_quality + '%';
+            document.getElementById('stat-scope-val').textContent = payload.alert_favorites_only ? 'Favorites Only' : 'All Markets';
+            
+            const dirMap = { 'all': 'All Signals', 'Buy': 'Buy Only', 'Sell': 'Sell Only' };
+            document.getElementById('stat-direction-val').textContent = dirMap[payload.alert_directions] || 'All Signals';
+
+            const headerPill = document.getElementById('header-alert-pill');
+            const headerText = document.getElementById('header-alert-status-text');
+            if (payload.email_alerts_enabled) {
+                headerPill.className = 'alerts-status-pill pill-active';
+                headerText.textContent = 'Alerts Active';
+            } else {
+                headerPill.className = 'alerts-status-pill pill-paused';
+                headerText.textContent = 'Alerts Paused';
+            }
+
+            setTimeout(() => {
+                statusMsg.style.display = 'none';
+            }, 4000);
+        } else {
+            statusMsg.className = 'status-msg-banner status-msg-error';
+            statusMsg.textContent = '✕ Error: ' + (data.error || 'Could not save preferences');
+        }
+    } catch (err) {
+        statusMsg.style.display = 'block';
+        statusMsg.className = 'status-msg-banner status-msg-error';
+        statusMsg.textContent = '✕ Network error updating preferences';
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+async function sendTestAlert() {
+    const btn = document.getElementById('btn-test-alert');
+    const statusMsg = document.getElementById('alert-status-msg');
+    const originalText = btn.innerHTML;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span>Sending Test Email...</span>';
+
+    try {
+        const res = await fetch('/api/profile/alerts/test/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken'),
+            }
+        });
+        const data = await res.json();
+        statusMsg.style.display = 'block';
+        if (data.success) {
+            statusMsg.className = 'status-msg-banner status-msg-success';
+            statusMsg.textContent = '✓ ' + data.message;
+        } else {
+            statusMsg.className = 'status-msg-banner status-msg-error';
+            statusMsg.textContent = 'Notice: ' + data.message;
+        }
+    } catch (err) {
+        statusMsg.style.display = 'block';
+        statusMsg.className = 'status-msg-banner status-msg-error';
+        statusMsg.textContent = '✕ Error sending test alert: ' + err.message;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+</script>
+{% endblock %}

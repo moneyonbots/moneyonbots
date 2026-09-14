@@ -1,0 +1,86 @@
+{% extends "dashboard/base.html" %}
+{% load static %}
+
+{% block title %}Moneybots — Performance{% endblock %}
+
+{% block content %}
+<div class="layout layout-full">
+    <section class="performance-col">
+        <div class="performance-header">
+            <h1>Performance</h1>
+            <p>Signal history and trading statistics</p>
+        </div>
+
+        <div class="performance-stats">
+            <div class="perf-stat-card">
+                <div class="perf-stat-label">Total Trades</div>
+                <div class="perf-stat-value" id="stat-total">0</div>
+            </div>
+            <div class="perf-stat-card">
+                <div class="perf-stat-label">Win Rate</div>
+                <div class="perf-stat-value" id="stat-win-rate">—</div>
+            </div>
+            <div class="perf-stat-card">
+                <div class="perf-stat-label">Win/Loss</div>
+                <div class="perf-stat-value" id="stat-wl">—</div>
+            </div>
+            <div class="perf-stat-card">
+                <div class="perf-stat-label">Avg P&L</div>
+                <div class="perf-stat-value" id="stat-avg-pnl">—</div>
+            </div>
+            <div class="perf-stat-card">
+                <div class="perf-stat-label">Avg Win</div>
+                <div class="perf-stat-value perf-stat-win" id="stat-avg-win">—</div>
+            </div>
+            <div class="perf-stat-card">
+                <div class="perf-stat-label">Avg Loss</div>
+                <div class="perf-stat-value perf-stat-loss" id="stat-avg-loss">—</div>
+            </div>
+        </div>
+
+        <div class="performance-filters">
+            <input type="text" id="perf-search-filter" placeholder="Search markets..." />
+            <select id="perf-symbol-filter">
+                <option value="">All Symbols</option>
+            </select>
+            <select id="perf-result-filter">
+                <option value="">All Results</option>
+                <option value="tp">TP Only</option>
+                <option value="sl">SL Only</option>
+            </select>
+            <div class="history-count">
+                Showing <span id="perf-history-count">0</span> signals
+            </div>
+        </div>
+
+        <div class="performance-panel">
+            <table class="performance-table signals-table">
+                <thead>
+                    <tr>
+                        <th>Market</th>
+                        <th>Direction</th>
+                        <th>Entry</th>
+                        <th>Exit</th>
+                        <th>SL</th>
+                        <th>TP</th>
+                        <th>Result</th>
+                        <th>P&L</th>
+                        <th>R:R</th>
+                        <th>Closed At</th>
+                    </tr>
+                </thead>
+                <tbody id="performance-history-body">
+                    <tr class="signal-history-empty">
+                        <td colspan="10" style="text-align: center; padding: 40px;">
+                            <div class="loading-spinner"></div>
+                            <p>Loading signal history...</p>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+
+<script src="{% static 'js/performance.js' %}?v=1"></script>
+{% endblock %}

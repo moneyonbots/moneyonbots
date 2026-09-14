@@ -63,6 +63,15 @@
         set("stat-avg-pnl", stats.total_trades ? `${fmt(stats.avg_pnl)}%` : "—");
         set("stat-avg-win", stats.wins ? `+${fmt(stats.avg_win)}%` : "—");
         set("stat-avg-loss", stats.losses ? `${fmt(stats.avg_loss)}%` : "—");
+        
+        // Update symbol filter dropdown with available symbols
+        const symbolFilter = document.getElementById("perf-symbol-filter");
+        if (symbolFilter && allSignals.length > 0) {
+            const symbols = [...new Set(allSignals.map(s => s.symbol))].sort();
+            const currentValue = symbolFilter.value;
+            symbolFilter.innerHTML = '<option value="">All Symbols</option>' +
+                symbols.map(s => `<option value="${s}" ${s === currentValue ? 'selected' : ''}>${s}</option>`).join('');
+        }
     }
 
     function updateCount(count) {

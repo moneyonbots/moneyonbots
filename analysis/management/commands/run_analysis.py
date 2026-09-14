@@ -27,11 +27,15 @@ from analysis.services.indicators import add_technical_indicators
 from analysis.services.ml_engine import registry
 from analysis.services.price_monitor import price_monitor
 from analysis.services.signal_engine import generate_signal, passes_trade_filters
+from analysis.services.profitable_signal_generator import generate_profitable_signal
 from analysis.services.news_sentiment import news_analyzer
 from markets.catalog import all_symbols, is_market_open
 from positions.services.position_manager import check_and_close_positions, maybe_open_position
 
 logger = logging.getLogger(__name__)
+
+# Configuration: Use profitable signal generator or original
+USE_PROFITABLE_SIGNALS = True  # Set to False to use original signal engine
 
 
 @database_sync_to_async
@@ -162,7 +166,14 @@ async def analyze_symbol(symbol: str):
     for timeframe in timeframes:
         try:
             logger.debug(f"Generating signal for {symbol} with timeframe {timeframe}")
-            signal = generate_signal(symbol, df_ind, proba_up, timeframe=timeframe)
+            
+            # Use profitable signal generator if enabled, otherwise use original
+            if USE_PROFITABLE_SIGNALS:
+                logger.debug(f"Using profitable signal generator for {symbol}")
+                signal = generate_profitable_signal(symbol, df_ind, proba_up, timeframe=timeframe)
+            else:
+                logger.debug(f"Using original signal engine for {symbol}")
+                signal = generate_signal(symbol, df_ind, proba_up, timeframe=timeframe)
             
             # Add news sentiment to signal
             signal['news_sentiment'] = overall_sentiment

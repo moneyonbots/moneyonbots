@@ -1,4 +1,8 @@
+from django.conf import settings
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
 
 
 class MarketSignal(models.Model):
@@ -13,6 +17,10 @@ class MarketSignal(models.Model):
     market_name = models.CharField(max_length=64)
     market_type = models.CharField(max_length=16)
     timeframe = models.CharField(max_length=8, blank=True, default="1H")
+    strategy_mode = models.CharField(max_length=16, blank=True, default="default", 
+                                   help_text="Analysis mode used to generate this signal")
+    market_regime = models.CharField(max_length=16, blank=True, default="",
+                                   help_text="Market regime detected when signal was generated")
 
     direction = models.CharField(max_length=8, choices=DIRECTION_CHOICES, default="Neutral")
     signal_strength = models.FloatField(default=0)
@@ -94,4 +102,101 @@ class MarketSignal(models.Model):
             "created_at": self.created_at.isoformat(),
             "updated_at": (self.completed_at or self.created_at).isoformat(),
             "htf_advice": self.htf_advice,
+            "strategy_mode": self.strategy_mode,
+            "market_regime": self.market_regime,
         }
+
+
+class UserProfile(models.Model):
+    """User profile for trading dashboard preferences, favorite markets tracking,
+    and personalized email analysis alerts."""
+
+    DIRECTION_PREFERENCES = [
+        ("all", "All Directions"),
+        ("Buy", "Buy Signals Only"),
+        ("Sell", "Sell Signals Only"),
+    ]
+
+    TIMEFRAME_PREFERENCES = [
+        ("all", "All Timeframes"),
+        ("1H", "1 Hour (1H)"),
+        ("4H", "4 Hours (4H)"),
+        ("1D", "1 Day (1D)"),
+    ]
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="profile"
+    )
+    favorites = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of market symbols starred by user"
+    )
+    email_alerts_enabled = models.BooleanField(
+        default=True,
+        help_text="Whether to dispatch trade signal alerts to user email"
+    )
+    alert_min_quality = models.IntegerField(
+        default=70,
+        help_text="Minimum setup quality score (0-100%) to trigger an email alert"
+    )
+    alert_directions = models.CharField(
+        max_length=16,
+        choices=DIRECTION_PREFERENCES,
+        default="all"
+    )
+    alert_favorites_only = models.BooleanField(
+        default=False,
+        help_text="If True, only send alerts for symbols in favorites list"
+    )
+    alert_timeframe = models.CharField(
+        max_length=16,
+        choices=TIMEFRAME_PREFERENCES,
+        default="all"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"UserProfile({self.user.email or self.user.username})"
+
+    def is_favorite(self, symbol: str) -> bool:
+        return symbol in (self.favorites or [])
+
+    def toggle_favorite(self, symbol: str) -> bool:
+        favs = list(self.favorites or [])
+        if symbol in favs:
+            favs.remove(symbol)
+            is_fav = False
+        else:
+            favs.append(symbol)
+            is_fav = True
+        self.favorites = favs
+        self.save(update_fields=["favorites", "updated_at"])
+        return is_fav
+
+    def as_dict(self):
+        return {
+            "email": self.user.email,
+            "username": self.user.username,
+            "favorites": self.favorites or [],
+            "email_alerts_enabled": self.email_alerts_enabled,
+            "alert_min_quality": self.alert_min_quality,
+            "alert_directions": self.alert_directions,
+            "alert_favorites_only": self.alert_favorites_only,
+            "alert_timeframe": self.alert_timeframe,
+            "updated_at": self.updated_at.isoformat(),
+        }
+
+
+@receiver(post_save, sender=settings.AUTH_USER_MODEL)
+def create_or_save_user_profile(sender, instance, created, **kwargs):
+    """Automatically ensure a UserProfile exists whenever a User is created or saved."""
+    default_favs = ["frxEURUSD", "stpRNG", "cryBTCUSD", "frxXAUUSD"]
+    if created:
+        UserProfile.objects.create(user=instance, favorites=default_favs)
+    else:
+        UserProfile.objects.get_or_create(user=instance, defaults={"favorites": default_favs})
+

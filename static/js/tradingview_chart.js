@@ -8,8 +8,14 @@
         if (!container || typeof TradingView === 'undefined') return null;
 
         function formatSymbol(sym) {
-            // Internal symbol names are already in correct Deriv API format
-            return sym;
+            if (!sym) return '';
+            let s = String(sym).trim();
+            if (s.startsWith('DERIV:')) {
+                s = s.substring(6).trim();
+            } else if (s.includes(':')) {
+                s = s.split(':').pop().trim();
+            }
+            return s;
         }
 
         // Deriv Datafeed implementation
@@ -61,55 +67,143 @@
                 this.fetchActiveSymbols().catch(console.error);
             }
 
+            getServerTime(callback) {
+                callback(Math.floor(Date.now() / 1000));
+            }
+
             resolveSymbol(symbolName, onSymbolResolvedCallback, onResolveErrorCallback) {
                 console.log('Resolving symbol:', symbolName);
                 const symbol = formatSymbol(symbolName);
                 
                 // Determine symbol type and appropriate settings
+                // Force session 24x7 and Etc/UTC for all Deriv markets so TradingView never locks out incoming ticks
                 let symbolType = 'cfd';
-                let session = '24x7';
-                let pricescale = 10000;
+                const session = '24x7';
+                const timezone = 'Etc/UTC';
                 let minmov = 1;
                 let description = symbol;
-                let timezone = 'Etc/UTC';
-                
-                // Adjust settings based on symbol patterns
+
+                const KNOWN_PRICESCALES = {
+                    // Volatility Indices
+                    'R_10': 1000,
+                    'R_25': 1000,
+                    'R_50': 10000,
+                    'R_75': 10000,
+                    'R_100': 100,
+                    // 1-Second Volatility Indices
+                    '1HZ10V': 1000,
+                    '1HZ15V': 100,
+                    '1HZ25V': 1000,
+                    '1HZ30V': 100,
+                    '1HZ50V': 10000,
+                    '1HZ75V': 10000,
+                    '1HZ90V': 100,
+                    '1HZ100V': 100,
+                    '1HZ150V': 100,
+                    '1HZ200V': 100,
+                    '1HZ250V': 100,
+                    '1HZ300V': 100,
+                    // Crash / Boom
+                    'BOOM1000': 10000,
+                    'BOOM500': 10000,
+                    'BOOM300N': 10000,
+                    'BOOM600': 10000,
+                    'BOOM900': 10000,
+                    'BOOM150N': 10000,
+                    'BOOM50': 10000,
+                    'CRASH1000': 10000,
+                    'CRASH500': 10000,
+                    'CRASH300N': 10000,
+                    'CRASH600': 10000,
+                    'CRASH900': 10000,
+                    'CRASH150N': 10000,
+                    'CRASH50': 10000,
+                    // Jump Indices
+                    'JD10': 100,
+                    'JD25': 100,
+                    'JD50': 100,
+                    'JD75': 100,
+                    'JD100': 100,
+                    // Step Indices
+                    'stpRNG': 10,
+                    'stpRNG2': 10,
+                    'stpRNG3': 10,
+                    'stpRNG4': 10,
+                    'stpRNG5': 10,
+                    // Range Break Indices
+                    'RB100': 100,
+                    'RB200': 100,
+                    // Cryptocurrencies
+                    'cryBTCUSD': 100,
+                    'cryETHUSD': 100,
+                    // Commodities
+                    'frxXAUUSD': 100,
+                    'frxXAGUSD': 1000,
+                    // Forex JPY pairs (3 decimals)
+                    'frxUSDJPY': 1000,
+                    'frxEURJPY': 1000,
+                    'frxGBPJPY': 1000,
+                    'frxAUDJPY': 1000,
+                    'frxNZDJPY': 1000,
+                    'frxCADJPY': 1000,
+                    'frxCHFJPY': 1000,
+                    // Major / Minor Forex pairs (5 decimals)
+                    'frxEURUSD': 100000,
+                    'frxGBPUSD': 100000,
+                    'frxAUDUSD': 100000,
+                    'frxNZDUSD': 100000,
+                    'frxUSDCAD': 100000,
+                    'frxUSDCHF': 100000,
+                    'frxEURGBP': 100000,
+                    'frxEURAUD': 100000,
+                    'frxEURCAD': 100000,
+                    'frxEURCHF': 100000,
+                    'frxGBPAUD': 100000,
+                    'frxGBPCAD': 100000,
+                };
+
+                let pricescale = 10000;
+                if (KNOWN_PRICESCALES[symbol]) {
+                    pricescale = KNOWN_PRICESCALES[symbol];
+                } else {
+                    const activeSym = this.activeSymbols.find(s => s.symbol === symbol);
+                    if (activeSym && activeSym.pip && activeSym.pip > 0) {
+                        pricescale = Math.round(1 / activeSym.pip);
+                    } else if (symbol.startsWith('cry')) {
+                        pricescale = 100;
+                    } else if (symbol.startsWith('frx') && symbol.includes('JPY')) {
+                        pricescale = 1000;
+                    } else if (symbol.startsWith('frx')) {
+                        pricescale = 100000;
+                    } else if (symbol.startsWith('JD') || symbol.startsWith('RB')) {
+                        pricescale = 100;
+                    } else if (symbol.startsWith('OTC_')) {
+                        pricescale = 100;
+                    } else {
+                        pricescale = 10000;
+                    }
+                }
+
+                // Determine symbolType & human-readable description
                 if (symbol.startsWith('R_') || symbol.startsWith('1HZ')) {
                     symbolType = 'Volatility Indices';
-                    pricescale = 10000;
                 } else if (symbol.startsWith('BOOM') || symbol.startsWith('CRASH')) {
                     symbolType = 'Derived';
-                    pricescale = 10000;
-                } else if (symbol.startsWith('JD')) {
+                } else if (symbol.startsWith('JD') || symbol.startsWith('stpRNG') || symbol.startsWith('RB')) {
                     symbolType = 'Derived';
-                    pricescale = 10000;
-                } else if (symbol.startsWith('stpRNG') || symbol.startsWith('RB')) {
-                    symbolType = 'Derived';
-                    pricescale = 10000;
                 } else if (symbol.startsWith('frxXAU') || symbol.startsWith('frxXAG')) {
                     symbolType = 'Commodities';
-                    session = '24x5';
-                    timezone = 'America/New_York';
-                    pricescale = 100;
                     description = symbol.startsWith('frxXAU') ? 'Gold/USD' : 'Silver/USD';
                 } else if (symbol.startsWith('frx')) {
                     symbolType = 'Forex';
-                    session = '24x5';
-                    timezone = 'America/New_York';
                     const pair = symbol.substring(3);
                     description = pair.replace(/([A-Z]{3})([A-Z]{3})/, '$1/$2');
-                    pricescale = pair.includes('JPY') ? 1000 : 100000;
                 } else if (symbol.startsWith('cry')) {
                     symbolType = 'Cryptocurrencies';
-                    pricescale = 100;
                 } else if (symbol.startsWith('WLD')) {
                     symbolType = 'Forex Baskets';
-                    pricescale = 10000;
                 } else if (symbol.startsWith('OTC_')) {
                     symbolType = 'Indices';
-                    pricescale = 100;
-                    session = '0900-1630';
-                    timezone = 'America/New_York';
                 }
                 
                 console.log('Symbol resolved:', { symbol, symbolType, pricescale, session, description });
@@ -168,6 +262,7 @@
                                     market: marketName,
                                     submarket: submarketName,
                                     display_name: item.display_name || item.name,
+                                    pip: item.pip,
                                 }));
                         });
                     }).sort((a, b) => a.description.localeCompare(b.description));
@@ -202,6 +297,7 @@
                                 type: s.underlying_symbol_type || s.symbol_type || s.market || 'cfd',
                                 market: s.market || 'Unknown',
                                 display_name: s.display_name || s.underlying_symbol_name || symbol,
+                                pip: s.pip,
                             };
                         });
                     if (this.activeSymbols.length) {
@@ -365,7 +461,16 @@
                 }
                 
                 this.connectionPromise = new Promise((resolve, reject) => {
-                    this.ws = new WebSocket(`wss://ws.binaryws.com/websockets/v3?app_id=${this.appId}`);
+                    const wsUrl = `wss://ws.derivws.com/websockets/v3?app_id=${this.appId}`;
+                    const fallbackUrl = `wss://ws.binaryws.com/websockets/v3?app_id=${this.appId}`;
+                    
+                    let socket;
+                    try {
+                        socket = new WebSocket(wsUrl);
+                    } catch (e) {
+                        socket = new WebSocket(fallbackUrl);
+                    }
+                    this.ws = socket;
                     
                     this.ws.onopen = () => {
                         console.log('Deriv Datafeed connected');
@@ -386,21 +491,30 @@
                     this.ws.onerror = (error) => {
                         console.error('Deriv Datafeed error:', error);
                         this.connected = false;
-                        reject(error);
                     };
 
                     this.ws.onclose = () => {
-                        console.log('Deriv Datafeed disconnected');
+                        console.log('Deriv Datafeed disconnected, will attempt reconnect...');
                         this.connected = false;
                         this.authorized = false;
                         this.connectionPromise = null;
+
+                        // Auto-reconnect if we have active subscriptions
+                        setTimeout(() => {
+                            if (this.subscriptions.size > 0 && this.currentSymbol) {
+                                console.log('Deriv Datafeed reconnecting for symbol:', this.currentSymbol);
+                                this.connect().then(() => {
+                                    if (this.currentSymbol && typeof this.onRealtimeCallback === 'function') {
+                                        console.log('Re-subscribing ticks after reconnect for:', this.currentSymbol);
+                                        this.send({ ticks: this.currentSymbol, subscribe: 1 }).catch(() => {});
+                                    }
+                                }).catch(console.error);
+                            }
+                        }, 2500);
                     };
 
                     this.ws.onmessage = (evt) => {
                         const data = JSON.parse(evt.data);
-                        
-                        // Log all message types for debugging
-                        console.log('Received message type:', data.msg_type, data);
                         
                         // Log any errors
                         if (data.error) {
@@ -423,16 +537,14 @@
                             }
                         }
 
-                        // Handle OHLC updates for real-time candle movement
-                        if (data.msg_type === "ohlc" && data.ohlc) {
-                            console.log('Received OHLC update:', data.ohlc);
-                            this.handleOHLC(data.ohlc);
-                        }
-                        
                         // Handle tick updates for real-time chart movement
                         if (data.msg_type === "tick" && data.tick) {
-                            console.log('Received tick:', data.tick);
                             this.handleTick(data.tick);
+                        }
+
+                        // Handle OHLC updates (if any arrived)
+                        if (data.msg_type === "ohlc" && data.ohlc) {
+                            this.handleOHLC(data.ohlc);
                         }
                     };
                 });
@@ -576,6 +688,12 @@
                     }
 
                     console.log('Loaded', bars.length, 'candles for', symbol);
+                    if (bars.length > 0 && (!this.currentSymbol || this.currentSymbol === symbol)) {
+                        const lastBar = bars[bars.length - 1];
+                        this.currentCandle = { ...lastBar, symbol: symbol };
+                        window.currentChartPrice = lastBar.close;
+                        window.currentCandleData = this.currentCandle;
+                    }
                     if (window.marketDataService) {
                         window.marketDataService.ingestChartBars(symbol, bars);
                     }
@@ -586,65 +704,83 @@
                 }
             }
 
-            subscribeBars(symbolInfo, resolution, onRealtimeCallback, subscriberUID, onResetCacheNeededCallback) {
+            async subscribeBars(symbolInfo, resolution, onRealtimeCallback, subscriberUID, onResetCacheNeededCallback) {
                 const symbol = formatSymbol(symbolInfo.ticker || symbolInfo.name);
                 this.currentSymbol = symbol;
                 this.currentGranularity = this.getGranularity(resolution);
                 this.subscriptions.add(subscriberUID);
                 this.onRealtimeCallback = onRealtimeCallback;
-                this.currentCandle = null;
                 window.currentChartSymbol = symbol;
 
-                this.send({ ticks: symbol, subscribe: 1 }).catch(() => {});
-                this.send({
-                    ticks_history: symbol,
-                    style: 'candles',
-                    granularity: this.currentGranularity,
-                    adjust_start_time: 1,
-                    subscribe: 1,
-                    count: 1,
-                    end: 'latest',
-                }).then((data) => {
-                    const bars = this.mapCandles(data.candles);
-                    if (bars.length) {
-                        this.currentCandle = bars[bars.length - 1];
-                        window.currentChartPrice = this.currentCandle.close;
-                        window.currentCandleData = this.currentCandle;
-                        onRealtimeCallback(this.currentCandle);
-                    }
-                }).catch((error) => {
-                    console.error('Failed to seed live candle:', error);
-                });
+                // Reset current candle if symbol changed to avoid cross-market candle contamination
+                if (this.currentCandle && this.currentCandle.symbol !== symbol) {
+                    this.currentCandle = null;
+                }
 
-                if (this.pollInterval) clearInterval(this.pollInterval);
-                this.pollInterval = setInterval(() => {
-                    this.send({
-                        ticks_history: symbol,
-                        style: 'candles',
-                        granularity: this.currentGranularity,
-                        count: 1,
-                        end: 'latest',
-                    }).then((data) => {
+                console.log('[DerivDatafeed] Subscribing ticks for:', symbol, 'granularity:', this.currentGranularity);
+
+                // Await forget_all to prevent the race condition where forget_all cancels the new subscription!
+                try {
+                    await this.send({ forget_all: 'ticks' }).catch(() => {});
+                    await this.send({ forget_all: 'candles' }).catch(() => {});
+                } catch (e) {
+                    console.warn('[DerivDatafeed] forget_all error:', e);
+                }
+
+                // Guard against rapid symbol changes while forget_all was awaiting
+                if (this.currentSymbol !== symbol) {
+                    console.log('[DerivDatafeed] Symbol changed during forget_all, aborting for:', symbol);
+                    return;
+                }
+
+                // Subscribe to live tick stream for instant per-tick chart movement
+                try {
+                    await this.send({ ticks: symbol, subscribe: 1 });
+                    console.log('[DerivDatafeed] Tick subscription confirmed for:', symbol);
+                } catch (err) {
+                    console.warn('[DerivDatafeed] Error subscribing ticks:', err);
+                }
+
+                // Pre-seed candle if not already loaded from getBars
+                if (!this.currentCandle || this.currentCandle.symbol !== symbol) {
+                    try {
+                        const data = await this.send({
+                            ticks_history: symbol,
+                            style: 'candles',
+                            granularity: this.currentGranularity,
+                            adjust_start_time: 1,
+                            count: 1,
+                            end: 'latest',
+                        });
                         const bars = this.mapCandles(data.candles);
-                        if (!bars.length) return;
-                        const bar = bars[bars.length - 1];
-                        if (this.currentCandle && bar.time === this.currentCandle.time) {
-                            bar.close = this.currentCandle.close;
-                            bar.high = Math.max(bar.high, this.currentCandle.high);
-                            bar.low = Math.min(bar.low, this.currentCandle.low);
+                        if (bars.length && (!this.currentCandle || this.currentCandle.symbol !== symbol) && this.currentSymbol === symbol) {
+                            this.currentCandle = { ...bars[bars.length - 1], symbol: symbol };
+                            window.currentChartPrice = this.currentCandle.close;
+                            window.currentCandleData = this.currentCandle;
+                            if (typeof this.onRealtimeCallback === 'function') {
+                                this.onRealtimeCallback(this.currentCandle);
+                            }
                         }
-                        this.currentCandle = bar;
-                        onRealtimeCallback(bar);
-                    }).catch(() => {});
-                }, 30000);
+                    } catch (error) {
+                        console.warn('[DerivDatafeed] Failed to seed live candle from history:', error);
+                    }
+                } else if (typeof this.onRealtimeCallback === 'function') {
+                    this.onRealtimeCallback(this.currentCandle);
+                }
             }
 
             startPolling() {}
 
-            unsubscribeBars(subscriberUID) {
+            async unsubscribeBars(subscriberUID) {
+                console.log('[DerivDatafeed] Unsubscribing bars for:', subscriberUID);
                 this.subscriptions.delete(subscriberUID);
-                
-                // Clear polling interval
+                if (this.subscriptions.size === 0) {
+                    try {
+                        await this.send({ forget_all: 'ticks' }).catch(() => {});
+                        await this.send({ forget_all: 'candles' }).catch(() => {});
+                    } catch (e) {}
+                    this.onRealtimeCallback = null;
+                }
                 if (this.pollInterval) {
                     clearInterval(this.pollInterval);
                     this.pollInterval = null;
@@ -652,100 +788,141 @@
             }
 
             handleOHLC(ohlc) {
-                if (this.onRealtimeCallback) {
-                    const bar = {
-                        time: ohlc.open_time * 1000,
-                        open: parseFloat(ohlc.open),
-                        high: parseFloat(ohlc.high),
-                        low: parseFloat(ohlc.low),
-                        close: parseFloat(ohlc.close),
-                    };
-                    console.log('Received OHLC update:', bar);
-                    this.onRealtimeCallback(bar);
-                    // Update current candle reference
-                    this.currentCandle = bar;
-                    window.currentCandleData = bar;
+                if (!ohlc || !this.currentCandle) return;
+                const ohlcSym = formatSymbol(ohlc.symbol);
+                const curSym = formatSymbol(this.currentSymbol);
+                if (ohlcSym && curSym && ohlcSym.toUpperCase() !== curSym.toUpperCase()) return;
+
+                const candleTime = Number(ohlc.open_time) * 1000;
+                if (candleTime === this.currentCandle.time) {
+                    // Update bounds without downgrading latest tick close
+                    this.currentCandle.high = Math.max(this.currentCandle.high, parseFloat(ohlc.high));
+                    this.currentCandle.low = Math.min(this.currentCandle.low, parseFloat(ohlc.low));
+                    if (typeof this.onRealtimeCallback === 'function') {
+                        this.onRealtimeCallback({ ...this.currentCandle });
+                    }
                 }
             }
 
             handleTick(tick) {
-                if (tick.symbol && this.currentSymbol && tick.symbol !== this.currentSymbol) {
+                if (!tick || tick.quote === undefined || tick.quote === null) return;
+
+                const tickSym = formatSymbol(tick.symbol);
+                const curSym = formatSymbol(this.currentSymbol);
+                if (tickSym && curSym && tickSym.toUpperCase() !== curSym.toUpperCase()) {
                     return;
                 }
-                if (!this.onRealtimeCallback) {
-                    return;
-                }
-                
+
                 const price = parseFloat(tick.quote);
-                const tickTime = tick.epoch * 1000;
+                if (isNaN(price)) return;
+
+                const tickTime = (tick.epoch ? Number(tick.epoch) : Math.floor(Date.now() / 1000)) * 1000;
+                const granularitySec = this.currentGranularity || 60;
+                const granularityMs = granularitySec * 1000;
+                const candleTime = Math.floor(tickTime / granularityMs) * granularityMs;
+
                 window.currentChartPrice = price;
-                if (window.marketDataService) {
+
+                if (!this.currentCandle || this.currentCandle.time === undefined || this.currentCandle.symbol !== this.currentSymbol) {
+                    this.currentCandle = {
+                        time: candleTime,
+                        open: price,
+                        high: price,
+                        low: price,
+                        close: price,
+                        symbol: this.currentSymbol,
+                    };
+                } else if (candleTime > this.currentCandle.time) {
+                    // New candle interval started!
+                    this.currentCandle = {
+                        time: candleTime,
+                        open: price,
+                        high: price,
+                        low: price,
+                        close: price,
+                        symbol: this.currentSymbol,
+                    };
+                } else if (candleTime === this.currentCandle.time) {
+                    // Same candle interval: update high, low, close with latest tick
+                    this.currentCandle.high = Math.max(this.currentCandle.high, price);
+                    this.currentCandle.low = Math.min(this.currentCandle.low, price);
+                    this.currentCandle.close = price;
+                } else {
+                    // Out-of-order tick older than current candle: ignore
+                    return;
+                }
+
+                // Move candle and price scale on EVERY tick in TradingView - IMMEDIATE UPDATE
+                if (typeof this.onRealtimeCallback === 'function') {
+                    // Send the updated candle immediately without any delay
+                    this.onRealtimeCallback({ ...this.currentCandle });
+                    
+                    // Dispatch tick event for other components
+                    window.dispatchEvent(new CustomEvent('tick-update', {
+                        detail: {
+                            symbol: this.currentSymbol,
+                            price: price,
+                            time: tickTime
+                        }
+                    }));
+                }
+
+                window.currentCandleData = this.currentCandle;
+
+                // Sync with MarketDataService
+                if (window.marketDataService && typeof window.marketDataService.handleChartTick === 'function') {
+                    window.marketDataService.handleChartTick(this.currentSymbol, price, tickTime, this.currentCandle);
+                } else if (window.marketDataService) {
                     window.marketDataService.setCurrentPrice(price);
                 }
+
+                // Dispatch tick-update event for any listeners (e.g. Brain widget)
                 window.dispatchEvent(new CustomEvent('tick-update', { 
                     detail: { 
                         price: price, 
-                        time: tickTime,
-                        symbol: tick.symbol || this.currentSymbol 
+                        time: tickTime, 
+                        symbol: tick.symbol || this.currentSymbol,
+                        candle: this.currentCandle,
                     } 
                 }));
-                
-                if (!this.currentCandle) {
-                    const granularity = this.currentGranularity || 60;
-                    const candleStartTime = Math.floor(tickTime / (granularity * 1000)) * (granularity * 1000);
-                    this.currentCandle = {
-                        time: candleStartTime,
-                        open: price,
-                        high: price,
-                        low: price,
-                        close: price,
-                    };
-                    this.onRealtimeCallback(this.currentCandle);
-                    window.currentCandleData = this.currentCandle;
-                    return;
-                }
-
-                const candleTime = this.currentCandle.time;
-                const granularity = this.currentGranularity || 60;
-                const candleEndTime = candleTime + (granularity * 1000);
-
-                if (tickTime < candleEndTime) {
-                    const updatedCandle = {
-                        time: this.currentCandle.time,
-                        open: this.currentCandle.open,
-                        high: Math.max(this.currentCandle.high, price),
-                        low: Math.min(this.currentCandle.low, price),
-                        close: price,
-                    };
-                    this.onRealtimeCallback(updatedCandle);
-                    this.currentCandle = updatedCandle;
-                    window.currentCandleData = updatedCandle;
-                } else {
-                    const newCandleStartTime = Math.floor(tickTime / (granularity * 1000)) * (granularity * 1000);
-                    this.currentCandle = {
-                        time: newCandleStartTime,
-                        open: price,
-                        high: price,
-                        low: price,
-                        close: price,
-                    };
-                    this.onRealtimeCallback(this.currentCandle);
-                    window.currentCandleData = this.currentCandle;
-                }
             }
 
             getGranularity(resolution) {
-                const map = {
-                    '1': 60,
-                    '5': 300,
-                    '15': 900,
-                    '30': 1800,
-                    '60': 3600,
-                    '240': 14400,
-                    'D': 86400,
-                    '1D': 86400,
-                };
-                return map[resolution] || 60;
+                if (!resolution) return 60;
+                const res = String(resolution).trim().toUpperCase();
+                if (res === 'D' || res === '1D') return 86400;
+                if (res === 'W' || res === '1W') return 604800;
+                if (res === 'M' || res === '1M') return 86400 * 30;
+
+                let seconds = 60;
+                if (res.endsWith('D')) {
+                    seconds = (parseInt(res, 10) || 1) * 86400;
+                } else if (res.endsWith('H')) {
+                    seconds = (parseInt(res, 10) || 1) * 3600;
+                } else if (res.endsWith('M')) {
+                    seconds = (parseInt(res, 10) || 1) * 60;
+                } else if (res.endsWith('S')) {
+                    seconds = Math.max(60, parseInt(res, 10) || 60);
+                } else {
+                    const num = parseInt(res, 10);
+                    if (!isNaN(num)) {
+                        seconds = num * 60;
+                    }
+                }
+
+                const valid = [60, 120, 180, 300, 600, 900, 1800, 3600, 7200, 14400, 28800, 86400];
+                if (valid.includes(seconds)) return seconds;
+                if (seconds >= 86400) return 86400;
+                let closest = valid[0];
+                let minDiff = Math.abs(seconds - closest);
+                for (let i = 1; i < valid.length; i++) {
+                    const diff = Math.abs(seconds - valid[i]);
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        closest = valid[i];
+                    }
+                }
+                return closest;
             }
         }
 
@@ -793,6 +970,11 @@
                 "mainSeriesProperties.candleStyle.borderDownColor": "#ef5350",
                 "mainSeriesProperties.candleStyle.wickUpColor": "#26a69a",
                 "mainSeriesProperties.candleStyle.wickDownColor": "#ef5350",
+                "mainSeriesProperties.showPriceLine": true,
+                "mainSeriesProperties.priceLineWidth": 1,
+                "mainSeriesProperties.showCountdown": true,
+                "scalesProperties.showSymbolLabels": true,
+                "scalesProperties.showStudyLastValue": true,
             },
         });
 

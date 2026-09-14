@@ -27,12 +27,12 @@
         return `
             <tr data-symbol="${signal.symbol}" class="signal-row ${directionClass}">
                 <td class="signal-market">${signal.market_name}</td>
-                <td class="signal-price ${priceColor}">${fmt(signal.price, 5)}</td>
                 <td class="signal-direction ${directionClass}">${direction}</td>
-                <td class="signal-strength">${strengthPct}%</td>
+                <td class="signal-price ${priceColor}">${fmt(signal.price, 5)}</td>
                 <td class="signal-entry">${fmt(signal.entry || signal.price, 5)}</td>
                 <td class="signal-sl">${fmt(signal.stop_loss, 5)}</td>
                 <td class="signal-tp">${fmt(signal.take_profit, 5)}</td>
+                <td class="signal-strength">${strengthPct}%</td>
                 <td class="signal-rr">${fmt(signal.risk_reward, 2)}</td>
                 <td class="signal-htf ${htfClass}">${htfAdvice || '—'}</td>
             </tr>

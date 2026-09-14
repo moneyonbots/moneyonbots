@@ -222,38 +222,49 @@
     padding: 0;
     max-width: 100%;
     margin: 0;
-    height: 100vh;
+    height: calc(100vh - 40px);
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 }
 
 .stocks-content {
     padding: 0;
     flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
+    overflow-y: auto;
 }
 
 /* Stock Ticker Styles */
 .stock-ticker {
     background: #ffffff;
     border-bottom: 2px solid #ff6a00;
-    padding: 4px 0;
+    height: 36px;
+    padding: 0 4px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
     overflow: hidden;
-    position: sticky;
-    top: 0;
-    z-index: 1000;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    position: relative;
+    z-index: 50;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+    flex-shrink: 0;
 }
 
 .ticker-container {
     max-width: 100%;
+    width: 100%;
     overflow: hidden;
+    display: flex;
+    align-items: center;
 }
 
 .ticker-content {
     display: flex;
     align-items: center;
+    width: 100%;
 }
 
 .ticker-loading {
@@ -265,6 +276,7 @@
 
 .ticker-scroll {
     display: flex;
+    align-items: center;
     animation: scroll 30s linear infinite;
     white-space: nowrap;
 }
@@ -286,11 +298,13 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 12px;
-    margin-right: 20px;
+    padding: 2px 10px;
+    margin-right: 16px;
     background: #f8f9fa;
     border-radius: 4px;
     border: 1px solid #e0e0e0;
+    height: 26px;
+    box-sizing: border-box;
 }
 
 .ticker-symbol {
@@ -323,11 +337,40 @@
 
 .tradingview-widget-container {
     flex: 1;
+    min-height: 0;
     border-radius: 0;
     overflow: hidden;
     box-shadow: none;
     margin: 0;
-    height: calc(100vh - 18px);
+    height: 100%;
+    width: 100%;
+}
+
+/* AI Chart Panel: Position below the topbar (40px) and market tickers (36px) so they never overlap */
+.page-stocks .brain-panel {
+    top: 76px !important;
+    height: calc(100vh - 76px) !important;
+    z-index: 60;
+}
+
+@media (max-width: 768px) {
+    .stocks-page {
+        height: auto;
+        min-height: calc(100vh - 50px);
+        min-height: calc(100dvh - 50px);
+    }
+
+    .page-stocks .brain-panel {
+        top: 50px !important;
+        height: calc(100vh - 50px) !important;
+        height: calc(100dvh - 50px) !important;
+        width: 100vw;
+        right: -100vw;
+    }
+
+    .page-stocks .brain-panel.open {
+        right: 0;
+    }
 }
 
 .gap-analysis-section {
