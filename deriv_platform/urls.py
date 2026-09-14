@@ -34,7 +34,6 @@ def robots_txt(request):
         content_type="text/plain"
     )
 
-
 urlpatterns = [
     path("favicon.ico", favicon),
     path("robots.txt", robots_txt),
